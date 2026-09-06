@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import {
+  ArrowLeft,
   Bot,
   Check,
   MessageCircle,
@@ -345,7 +346,12 @@ export function PainelConversas({ busca }: { busca: string }) {
   }
 
   return (
-    <div className={`caixa ${contatoAberto ? '' : 'sem-contato'}`}>
+    /* `data-movel` diz qual das três colunas o celular mostra: só cabe uma por
+       vez. No desktop o atributo existe e é ignorado — as colunas convivem. */
+    <div
+      className={`caixa ${contatoAberto ? '' : 'sem-contato'}`}
+      data-movel={!atual ? 'lista' : contatoAberto ? 'contato' : 'conversa'}
+    >
       {/* ------------------------------------------------------------ lista */}
       <div className="caixa-lista">
         <header className="lista-topo">
@@ -441,6 +447,15 @@ export function PainelConversas({ busca }: { busca: string }) {
         {atual ? (
           <>
             <header className="chat-head">
+              {/* Volta para a lista no celular; escondido onde as duas colunas cabem. */}
+              <button
+                type="button"
+                className="botao-icone chat-voltar"
+                onClick={() => setConversaId(null)}
+                aria-label="Voltar para a lista de conversas"
+              >
+                <ArrowLeft size={18} />
+              </button>
               <Avatar
                 nome={atual.nome_completo}
                 foto={atual.foto_url}

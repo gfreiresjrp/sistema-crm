@@ -1012,3 +1012,263 @@ button:disabled {
   background: var(--gold-veil);
   border-color: var(--gold-line);
 }
+
+/* ============================================================== celular
+   Abaixo de 860px a trilha de ícones não cabe ao lado do conteúdo: ela sai do
+   fluxo e vira uma gaveta. O botão que a abre mora na barra de cima.
+
+   O nome de cada seção passa a ser texto de verdade dentro da gaveta — o balão
+   `data-dica` depende de hover, que não existe no toque. */
+
+.menu-abrir,
+.menu-rotulo,
+.menu-veu {
+  display: none;
+}
+
+@media (max-width: 860px) {
+  .app {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .menu {
+    position: fixed;
+    top: 0;
+    left: 0;
+    bottom: 0;
+    width: 232px;
+    align-items: stretch;
+    padding: 12px 10px;
+    overflow-y: auto;
+    /* Fora da tela até ser chamada. `visibility` evita que ela receba foco. */
+    visibility: hidden;
+    transform: translateX(-100%);
+    transition:
+      transform 0.22s ease,
+      visibility 0.22s ease;
+    z-index: 60;
+  }
+
+  .menu.menu-aberto {
+    visibility: visible;
+    transform: none;
+  }
+
+  .menu-veu {
+    display: block;
+    position: fixed;
+    inset: 0;
+    padding: 0;
+    background: rgb(0 0 0 / 35%);
+    border: 0;
+    z-index: 50;
+  }
+
+  .menu-abrir {
+    display: grid;
+  }
+
+  /* 11px alinha a marca com a coluna dos ícones (10px da gaveta + 11px de
+     recuo do item). Com 6px ela ficava 5px à esquerda de tudo. */
+  .menu-selo {
+    margin-left: 11px;
+  }
+
+  .menu-itens {
+    align-items: stretch;
+    gap: 1px;
+  }
+
+  .menu-item {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 11px;
+    width: 100%;
+    height: 42px;
+    padding: 0 11px;
+    text-align: left;
+  }
+
+  .menu-rotulo {
+    display: inline;
+    font-size: 13.5px;
+    font-weight: 500;
+  }
+
+  /* O balão de dica é para o mouse: dentro da gaveta ele só atrapalharia. */
+  .menu-item::after {
+    content: none;
+  }
+
+  /* O traço da seção ativa ficava para fora da gaveta, virando um risco solto
+     na borda da tela. Dentro dela o próprio fundo do item já marca onde você
+     está. */
+  .menu-item.ativo::before {
+    content: none;
+  }
+
+  .menu-item em {
+    margin-left: auto;
+    position: static;
+  }
+
+  .barra {
+    gap: 8px;
+    padding: 0 12px;
+  }
+
+  /* Três alturas diferentes lado a lado (36 / 42 / 34) deixavam a barra
+     visivelmente irregular no celular. Uma só altura resolve. */
+  .barra .botao-icone,
+  .barra .seletor-unidade,
+  .barra .user-avatar {
+    height: 36px;
+  }
+
+  /* O nome da clínica sai; o avatar já identifica de quem é a conta. */
+  .seletor-texto {
+    display: none;
+  }
+
+  .seletor-unidade {
+    padding: 5px 6px;
+  }
+
+  /* `:not(.conteudo-cheio)` importa: Conversas ocupa a tela inteira e volta a
+     ganhar margem se a regra pegar as duas. */
+  .conteudo:not(.conteudo-cheio) {
+    padding: 14px 12px 76px;
+  }
+}
+
+/* A busca some antes de espremer os botões da direita. Quem precisa dela no
+   celular chega pela aba Conversas, que tem busca própria. */
+@media (max-width: 560px) {
+  .busca {
+    display: none;
+  }
+}
+
+/* ======================================================= caixa no celular
+   As três colunas viram uma só. `data-movel` no container escolhe qual delas
+   ocupa a tela: a lista, a conversa ou a ficha do contato. A navegação entre
+   elas é o toque na conversa (entra) e a seta do cabeçalho (volta). */
+
+.chat-voltar {
+  display: none;
+}
+
+@media (max-width: 860px) {
+  .caixa,
+  .caixa.sem-contato {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .caixa > * {
+    display: none;
+    min-width: 0;
+  }
+
+  .caixa[data-movel='lista'] .caixa-lista,
+  .caixa[data-movel='conversa'] .chat,
+  .caixa[data-movel='contato'] .contact-info {
+    display: flex;
+  }
+
+  /* A regra de 1100px esconde a ficha; aqui ela volta, ocupando a tela. */
+  .caixa[data-movel='contato'] .contact-info {
+    border-left: 0;
+  }
+
+  .chat-voltar {
+    display: grid;
+  }
+
+  /* Os dois botões de texto não cabem ao lado do nome: descem para uma linha
+     própria, e o cabeçalho vira duas faixas. */
+  .chat-head {
+    flex-wrap: wrap;
+    padding: 10px 12px;
+  }
+
+  .chat-acoes {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-end;
+  }
+
+  .chat-acoes .secondary-btn {
+    flex: 1;
+    justify-content: center;
+    min-width: 0;
+  }
+
+  /* 12px é a calha do resto do app: a lista precisa começar na mesma coluna. */
+  .lista-topo {
+    flex-wrap: wrap;
+    padding: 10px 12px;
+  }
+
+  /* A composição encostava 2px mais para dentro que o cabeçalho. */
+  .composicao {
+    padding-right: 12px;
+    padding-left: 12px;
+  }
+}
+
+/* ---------------------------------------------- cabeçalhos e modais no celular
+   Título e botões de ação disputam a mesma linha; abaixo de 860px o título
+   ganha a linha inteira e as ações descem, cada uma ocupando metade da largura
+   para virarem alvos de toque confortáveis. */
+
+@media (max-width: 860px) {
+  .section-heading {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    margin-bottom: 16px;
+  }
+
+  .acoes-cabecalho {
+    flex-wrap: wrap;
+  }
+
+  /* `nowrap` mantém os botões da mesma altura: sem ele, o rótulo mais longo
+     quebrava em duas linhas e crescia sozinho ao lado dos outros. Quando os
+     três não cabem, o último desce inteiro para a linha de baixo. */
+  .acoes-cabecalho > * {
+    flex: 1 1 auto;
+    justify-content: center;
+    white-space: nowrap;
+  }
+
+  .welcome h1 {
+    font-size: 21px;
+  }
+
+  /* A moldura de 24px roubava largura demais de um cartão de formulário. */
+  .modal-fundo {
+    padding: 12px;
+  }
+
+  .modal {
+    max-height: 92dvh;
+  }
+
+  /* Num formulário longo, Salvar ficava a uma rolagem de distância do campo que
+     acabou de ser preenchido. Grudado no rodapé ele está sempre à mão. */
+  .modal-corpo footer {
+    position: sticky;
+    bottom: 0;
+    margin: 4px -22px -20px;
+    padding: 12px 22px;
+    background: var(--surface);
+    border-top: 1px solid var(--line);
+  }
+
+  .modal-corpo footer > * {
+    flex: 1;
+    justify-content: center;
+  }
+}

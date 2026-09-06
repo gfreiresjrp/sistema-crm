@@ -1,7 +1,17 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Bell, Check, ChevronDown, LogOut, MoonStar, Search, Sun, TriangleAlert } from 'lucide-react';
+import {
+  Bell,
+  Check,
+  ChevronDown,
+  LogOut,
+  Menu,
+  MoonStar,
+  Search,
+  Sun,
+  TriangleAlert,
+} from 'lucide-react';
 import { CONFIGURADO, supabase } from '@/lib/supabase/cliente';
 import { useConsulta } from '@/lib/dados/consulta';
 import { useSessao } from '@/lib/dados/sessao';
@@ -70,6 +80,12 @@ function Painel() {
   const [tema, setTema] = useState<'claro' | 'escuro'>('claro');
   const [menuUnidade, setMenuUnidade] = useState(false);
   const [menuPerfil, setMenuPerfil] = useState(false);
+
+  /**
+   * No celular a trilha de ícones não cabe ao lado do conteúdo, então ela vira
+   * uma gaveta. No desktop este estado é ignorado — o CSS mantém a trilha fixa.
+   */
+  const [gaveta, setGaveta] = useState(false);
 
   /**
    * O título da aba é o nome do próprio negócio.
@@ -164,7 +180,7 @@ function Painel() {
 
   return (
     <main className="app">
-      <nav className="menu" aria-label="Navegação principal">
+      <nav className={`menu ${gaveta ? 'menu-aberto' : ''}`} aria-label="Navegação principal">
         <span className={`menu-selo ${clinica?.logo_url ? 'com-logo' : ''}`}>
           {clinica?.logo_url ? (
             <img src={clinica.logo_url} alt={clinica.nome} />
@@ -180,12 +196,17 @@ function Painel() {
               <button
                 type="button"
                 className={`menu-item ${vista === rotulo ? 'ativo' : ''}`}
-                onClick={() => setVista(rotulo)}
+                onClick={() => {
+                  setVista(rotulo);
+                  setGaveta(false);
+                }}
                 aria-current={vista === rotulo ? 'page' : undefined}
                 aria-label={rotulo}
                 data-dica={rotulo}
               >
                 <Icone size={20} />
+                {/* Só aparece na gaveta do celular: no desktop o nome vem do balão. */}
+                <span className="menu-rotulo">{rotulo}</span>
                 {rotulo === 'Conversas' && naoLidas > 0 && <em>{naoLidas}</em>}
               </button>
             </div>
@@ -203,8 +224,28 @@ function Painel() {
         </button>
       </nav>
 
+      {/* Fecha a gaveta ao tocar fora dela. Só existe enquanto ela está aberta. */}
+      {gaveta && (
+        <button
+          type="button"
+          className="menu-veu"
+          aria-label="Fechar menu"
+          onClick={() => setGaveta(false)}
+        />
+      )}
+
       <section className="area">
         <header className="barra">
+          <button
+            type="button"
+            className="botao-icone menu-abrir"
+            onClick={() => setGaveta((v) => !v)}
+            aria-label="Abrir menu"
+            aria-expanded={gaveta}
+          >
+            <Menu size={18} />
+          </button>
+
           <label className="busca">
             <Search size={16} />
             <input
