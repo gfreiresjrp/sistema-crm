@@ -16,7 +16,7 @@ export type Vista =
   | 'Conversas'
   | 'Agenda'
   | 'Contatos'
-  | 'CRM & Funil'
+  | 'Lista de Leads'
   | 'Reativação'
   | 'Campanhas'
   | 'Relatórios'
@@ -29,7 +29,7 @@ export const NAVEGACAO: Array<[string, Vista, React.ElementType]> = [
   ['', 'Conversas', MessageCircle],
   ['', 'Agenda', CalendarDays],
   ['RELACIONAMENTO', 'Contatos', Contact],
-  ['', 'CRM & Funil', Users],
+  ['', 'Lista de Leads', Users],
   ['', 'Reativação', WandSparkles],
   ['', 'Campanhas', Megaphone],
   ['GESTÃO', 'Relatórios', Activity],

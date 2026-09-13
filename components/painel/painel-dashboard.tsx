@@ -283,7 +283,7 @@ function FunilDoMes({ clinicaId }: { clinicaId: string }) {
           <EstadoVazio
             icone={TrendingUp}
             titulo="Funil ainda vazio"
-            texto="Cadastre um lead no CRM para acompanhar a jornada dele aqui."
+            texto="Cadastre um lead na Lista de Leads para acompanhar a jornada dele aqui."
           />
         }
       >
@@ -292,7 +292,7 @@ function FunilDoMes({ clinicaId }: { clinicaId: string }) {
             <EstadoVazio
               icone={TrendingUp}
               titulo="Funil ainda vazio"
-              texto="Cadastre um lead no CRM para acompanhar a jornada dele aqui."
+              texto="Cadastre um lead na Lista de Leads para acompanhar a jornada dele aqui."
             />
           ) : (
             <div className="funnel-content">

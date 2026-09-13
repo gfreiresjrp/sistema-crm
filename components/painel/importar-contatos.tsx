@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useRef, useState } from 'react';
+import { contagem, useListasLeads } from './painel-listas';
 import { AlertTriangle, CheckCircle2, Upload } from 'lucide-react';
 import { supabase } from '@/lib/supabase/cliente';
 import { useClinica } from '@/lib/dados/sessao';
@@ -42,13 +43,17 @@ export function ImportarContatos({
   aoFechar: () => void;
   aoImportar: () => void;
 }) {
-  const { clinicaId, unidadeId } = useClinica();
+  const { clinicaId, unidadeId, membroId } = useClinica();
   const { avisar, alertar } = useAviso();
+  const listas = useListasLeads(clinicaId, aberto ? 1 : 0);
 
   const [tabela, setTabela] = useState<Tabela | null>(null);
   const [mapa, setMapa] = useState<Mapeamento | null>(null);
   const [origem, setOrigem] = useState('outro');
   const [autorizados, setAutorizados] = useState(false);
+  // Em que lista os contatos do arquivo entram. "nova" cria uma na hora.
+  const [listaEscolha, setListaEscolha] = useState('');
+  const [novaLista, setNovaLista] = useState('');
   const [importando, setImportando] = useState(false);
   const [progresso, setProgresso] = useState(0);
   const arquivoRef = useRef<HTMLInputElement>(null);
@@ -118,28 +123,53 @@ export function ImportarContatos({
       const jaTem = new Set((existentes ?? []).map((p) => p.telefone));
       const novos = preparados.filter((p) => !jaTem.has(p.telefone));
 
-      if (novos.length === 0) {
+      if (novos.length === 0 && !listaEscolha) {
         avisar('Todos os contatos do arquivo já estavam cadastrados.');
         aoFechar();
         return;
       }
 
+      // A lista de destino é resolvida antes de gravar contatos: se a criação
+      // falhar (nome repetido, por exemplo), nada foi importado ainda.
+      let listaId: string | null = listaEscolha && listaEscolha !== 'nova' ? listaEscolha : null;
+      if (listaEscolha === 'nova') {
+        const nome = novaLista.trim();
+        if (!nome) {
+          alertar('Dê um nome para a nova lista.');
+          return;
+        }
+        const { data: criada, error: erroLista } = await supabase
+          .from('listas_leads')
+          .insert({ clinica_id: clinicaId, nome, criado_por: membroId })
+          .select('id')
+          .single();
+        if (erroLista || !criada) {
+          alertar(`Não deu para criar a lista: ${erroLista?.message ?? 'erro desconhecido'}`);
+          return;
+        }
+        listaId = criada.id;
+      }
+
       let gravados = 0;
+      const idsImportados: string[] = [];
       for (let i = 0; i < novos.length; i += LOTE) {
         const fatia = novos.slice(i, i + LOTE);
-        const { error } = await supabase.from('pacientes').insert(
-          fatia.map((p) => ({
-            clinica_id: clinicaId,
-            unidade_id: unidadeId,
-            nome_completo: p.nome,
-            telefone: p.telefone,
-            email: p.email,
-            interesse_principal: p.interesse,
-            origem: origem as never,
-            // Sem autorização declarada, o contato fica fora das campanhas.
-            aceita_marketing: autorizados,
-          })),
-        );
+        const { data: inseridos, error } = await supabase
+          .from('pacientes')
+          .insert(
+            fatia.map((p) => ({
+              clinica_id: clinicaId,
+              unidade_id: unidadeId,
+              nome_completo: p.nome,
+              telefone: p.telefone,
+              email: p.email,
+              interesse_principal: p.interesse,
+              origem: origem as never,
+              // Sem autorização declarada, o contato fica fora das campanhas.
+              aceita_marketing: autorizados,
+            })),
+          )
+          .select('id');
 
         if (error) {
           alertar(`Importados ${gravados}. Erro no lote seguinte: ${error.message}`);
@@ -147,14 +177,47 @@ export function ImportarContatos({
         }
 
         gravados += fatia.length;
+        (inseridos ?? []).forEach((p) => idsImportados.push(p.id));
         setProgresso(Math.round((gravados / novos.length) * 100));
       }
 
-      if (gravados > 0) {
+      // Na lista entram todos os contatos do arquivo: os novos e os que já
+      // existiam, porque o arquivo é que define o público.
+      let naLista = 0;
+      if (listaId) {
+        const { data: existentesDoArquivo } = await supabase
+          .from('pacientes')
+          .select('id')
+          .eq('clinica_id', clinicaId)
+          .is('excluido_em', null)
+          .in('telefone', preparados.map((p) => p.telefone));
+        const ids = [
+          ...new Set([...(existentesDoArquivo ?? []).map((p) => p.id), ...idsImportados]),
+        ];
+        for (let i = 0; i < ids.length; i += LOTE) {
+          const fatia = ids.slice(i, i + LOTE);
+          const { error: erroItens } = await supabase.from('listas_leads_itens').upsert(
+            fatia.map((pacienteId) => ({
+              clinica_id: clinicaId,
+              lista_id: listaId,
+              paciente_id: pacienteId,
+            })),
+            { onConflict: 'lista_id,paciente_id', ignoreDuplicates: true },
+          );
+          if (erroItens) {
+            alertar(`Contatos importados, mas a lista ficou incompleta: ${erroItens.message}`);
+            break;
+          }
+          naLista += fatia.length;
+        }
+      }
+
+      if (gravados > 0 || naLista > 0) {
         const repetidos = preparados.length - novos.length;
         avisar(
           `${gravados} contato(s) importado(s)` +
-            (repetidos ? ` • ${repetidos} já existiam` : ''),
+            (repetidos ? ` • ${repetidos} já existiam` : '') +
+            (naLista ? ` • ${naLista} na lista` : ''),
         );
         aoImportar();
         limpar();
@@ -169,6 +232,8 @@ export function ImportarContatos({
     setTabela(null);
     setMapa(null);
     setAutorizados(false);
+    setListaEscolha('');
+    setNovaLista('');
     setProgresso(0);
   }
 
@@ -254,6 +319,30 @@ export function ImportarContatos({
                 ))}
               </select>
             </Campo>
+            <Campo
+              rotulo="Lista de leads"
+              dica="Os contatos do arquivo entram nela; as campanhas escolhem o público por lista."
+            >
+              <select value={listaEscolha} onChange={(e) => setListaEscolha(e.target.value)}>
+                <option value="">— Nenhuma lista —</option>
+                {(listas.dados ?? []).map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.nome} ({contagem(l)})
+                  </option>
+                ))}
+                <option value="nova">+ Criar nova lista…</option>
+              </select>
+            </Campo>
+            {listaEscolha === 'nova' && (
+              <Campo rotulo="Nome da nova lista" largo>
+                <input
+                  value={novaLista}
+                  onChange={(e) => setNovaLista(e.target.value)}
+                  placeholder="Planilha de inativos — setembro"
+                  required
+                />
+              </Campo>
+            )}
           </div>
 
           {preparados && (

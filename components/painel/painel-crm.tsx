@@ -31,7 +31,13 @@ type Oportunidade = {
   procedimentos: { nome: string } | null;
 };
 
-export function PainelCRM() {
+/**
+ * Funil de vendas (kanban das oportunidades abertas).
+ *
+ * Vive dentro da Lista de Leads como segunda aba; `embutido` tira o cabeçalho
+ * da página, que a lista já desenha.
+ */
+export function PainelCRM({ embutido = false }: { embutido?: boolean } = {}) {
   const { clinicaId } = useClinica();
   const { executar, ocupado } = useAcao();
   const etapas = useEtapasFunil(clinicaId);
@@ -77,17 +83,23 @@ export function PainelCRM() {
     );
   }
 
+  const botaoAdicionar = (
+    <button className="primary-btn" onClick={() => setModalAberto(true)}>
+      <Plus size={15} /> Adicionar ao funil
+    </button>
+  );
+
   return (
     <>
-      <Cabecalho
-        titulo="Funil de vendas"
-        texto="Mova o lead entre as etapas com as setas do cartão."
-        acao={
-          <button className="primary-btn" onClick={() => setModalAberto(true)}>
-            <Plus size={15} /> Adicionar lead
-          </button>
-        }
-      />
+      {embutido ? (
+        <div className="funil-acoes">{botaoAdicionar}</div>
+      ) : (
+        <Cabecalho
+          titulo="Funil de vendas"
+          texto="Mova o lead entre as etapas com as setas do cartão."
+          acao={botaoAdicionar}
+        />
+      )}
 
       <Conteudo
         consulta={etapas}
@@ -113,11 +125,7 @@ export function PainelCRM() {
                 icone={Users}
                 titulo="Nenhum lead no funil"
                 texto="Adicione o primeiro lead para acompanhar a negociação até o agendamento."
-                acao={
-                  <button className="primary-btn" onClick={() => setModalAberto(true)}>
-                    <Plus size={15} /> Adicionar lead
-                  </button>
-                }
+                acao={botaoAdicionar}
               />
             </div>
           ) : (

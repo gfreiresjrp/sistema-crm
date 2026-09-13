@@ -1,5 +1,6 @@
 import { anonimo, chaveWebhook, falha, segredo } from '@/lib/servidor/banco';
 import { baixarMidia } from '@/lib/servidor/uazapi';
+import { baixarImagemComoDataUrl } from '@/lib/servidor/imagem';
 import { variavel } from '@/lib/servidor/ambiente';
 import { responderConversa } from '@/lib/servidor/assistente';
 
@@ -231,11 +232,25 @@ export async function POST(req: Request) {
       transcricao ||
       (midia ? null : (ROTULO_SEM_TEXTO[tipo] ?? ROTULO_SEM_TEXTO.texto));
 
+    /**
+     * Nome do outro lado.
+     *
+     * `senderName` é quem escreveu a mensagem: numa mensagem enviada do celular
+     * da clínica ele traz o nome do dono do chip, e usá-lo batizava todo contato
+     * novo com o nome da própria clínica — a caixa de entrada ficava cheia de
+     * "Gabriel Freire". O bloco `chat` descreve o interlocutor nos dois
+     * sentidos, então é ele a fonte; `senderName` só vale na mensagem recebida.
+     */
+    const nomeContato =
+      primeiroTexto(chat.wa_contactName, chat.wa_name, chat.name) ||
+      (mensagem.fromMe ? '' : primeiroTexto(mensagem.senderName)) ||
+      null;
+
     const { data, error } = await servidor.rpc('wa_registrar_mensagem', {
       p_segredo: chave,
       p_instancia: instancia,
       p_telefone: telefone,
-      p_nome: primeiroTexto(mensagem.senderName) || null,
+      p_nome: nomeContato,
       p_conteudo: conteudo,
       p_de_mim: Boolean(mensagem.fromMe),
       p_id_externo: idExterno,
@@ -254,8 +269,26 @@ export async function POST(req: Request) {
     const gravada = data as unknown as {
       mensagem_id: string | null;
       conversa_id: string;
+      paciente_id: string;
+      foto_pendente: boolean;
       duplicada: boolean;
     };
+
+    // A URL da foto expira em dias; guardamos a miniatura em si, e só quando
+    // a URL mudou desde a última vez — não a cada mensagem.
+    if (gravada.foto_pendente && foto) {
+      try {
+        const dataUrl = await baixarImagemComoDataUrl(foto);
+        await servidor.rpc('wa_guardar_foto', {
+          p_segredo: chave,
+          p_paciente_id: gravada.paciente_id,
+          p_foto: dataUrl,
+          p_origem: foto,
+        });
+      } catch (e) {
+        console.error('[webhook] foto não baixada:', e instanceof Error ? e.message : e);
+      }
+    }
 
     // A assistente só entra em mensagem nova do paciente. Evento reentregue já
     // foi respondido; mensagem nossa não pede resposta.

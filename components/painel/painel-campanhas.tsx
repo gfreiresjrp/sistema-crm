@@ -15,6 +15,7 @@ import {
   telefoneVisivel,
 } from '@/lib/dados/formato';
 import { Cabecalho, Campo, Conteudo, EstadoVazio, Modal, useAcao } from './base';
+import { contagem, useListasLeads } from './painel-listas';
 
 export type DesempenhoCampanha = {
   campanha_id: string;
@@ -29,6 +30,13 @@ export type DesempenhoCampanha = {
   receita: number;
   retorno_sobre_investimento: number | null;
   taxa_resposta_percentual: number | null;
+};
+
+/** Vínculo campanha → número responsável (tabela `campanha_numeros`). */
+type VinculoNumero = {
+  id: string;
+  campanha_id: string;
+  numero_whatsapp_id: string;
 };
 
 type Chip = {
@@ -77,6 +85,48 @@ export function PainelCampanhas() {
 
   const conectados = (chips.dados ?? []).filter((c) => c.status === 'conectado').length;
 
+  const vinculos = useConsulta<VinculoNumero[]>(
+    clinicaId
+      ? () =>
+          supabase
+            .from('campanha_numeros')
+            .select('id, campanha_id, numero_whatsapp_id')
+            .eq('clinica_id', clinicaId)
+      : null,
+    [clinicaId], [pulso],
+  );
+
+  const numeroDaCampanha = new Map(
+    (vinculos.dados ?? []).map((v) => [v.campanha_id, v.numero_whatsapp_id]),
+  );
+
+  /**
+   * Troca o número responsável. Vazio volta para a rotação automática.
+   * A tabela aceita vários números por campanha, mas aqui a escolha é única:
+   * é o que a pessoa consegue raciocinar ("essa campanha sai do chip novo").
+   */
+  async function definirNumero(campanha: DesempenhoCampanha, numeroId: string) {
+    await executar(
+      async () => {
+        const { error: erroLimpar } = await supabase
+          .from('campanha_numeros')
+          .delete()
+          .eq('campanha_id', campanha.campanha_id);
+        if (erroLimpar) return { error: erroLimpar };
+        if (!numeroId) return { error: null };
+        return supabase.from('campanha_numeros').insert({
+          clinica_id: clinicaId,
+          campanha_id: campanha.campanha_id,
+          numero_whatsapp_id: numeroId,
+        });
+      },
+      numeroId
+        ? `"${campanha.campanha}" sai pelo número escolhido`
+        : `"${campanha.campanha}" volta para a rotação automática`,
+      () => setPulso((n) => n + 1),
+    );
+  }
+
   /** Pausa ou retoma sem mexer na fila já enfileirada na UazApi. */
   async function alternar(campanha: DesempenhoCampanha) {
     const emAndamento = campanha.status === 'em_andamento';
@@ -107,7 +157,7 @@ export function PainelCampanhas() {
     <>
       <Cabecalho
         titulo="Campanhas"
-        texto="Disparos com rotação entre os números conectados."
+        texto="Cada campanha pode ter um número responsável; sem escolha, a rotação decide."
         acao={
           <button className="primary-btn" onClick={() => setModalAberto(true)}>
             <Plus size={15} /> Criar campanha
@@ -164,6 +214,7 @@ export function PainelCampanhas() {
             <div className="data-table">
               <header>
                 <span>CAMPANHA</span>
+                <span>NÚMERO</span>
                 <span>ENVIADOS</span>
                 <span>RESPOSTAS</span>
                 <span>AGENDADOS</span>
@@ -173,6 +224,21 @@ export function PainelCampanhas() {
               {linhas.map((linha) => (
                 <div key={linha.campanha_id}>
                   <span>{linha.campanha}</span>
+                  <select
+                    className="select-etapa"
+                    value={numeroDaCampanha.get(linha.campanha_id) ?? ''}
+                    disabled={ocupado}
+                    onChange={(e) => definirNumero(linha, e.target.value)}
+                    aria-label={`Número responsável por ${linha.campanha}`}
+                  >
+                    <option value="">Rotação automática</option>
+                    {(chips.dados ?? []).map((chip) => (
+                      <option key={chip.numero_id} value={chip.numero_id}>
+                        {chip.apelido}
+                        {chip.status === 'conectado' ? '' : ` (${ROTULO_STATUS_CHIP[chip.status] ?? chip.status})`}
+                      </option>
+                    ))}
+                  </select>
                   <span>{numero(linha.enviados)}</span>
                   <span>{numero(linha.responderam)}</span>
                   <span>{numero(linha.agendaram)}</span>
@@ -209,6 +275,7 @@ export function PainelCampanhas() {
 
       <ModalCampanha
         aberto={modalAberto}
+        chips={chips.dados ?? []}
         aoFechar={() => setModalAberto(false)}
         aoCriar={() => setPulso((n) => n + 1)}
       />
@@ -266,10 +333,12 @@ const OBJETIVOS: Array<{ chave: string; rotulo: string; mensagem: string }> = [
 
 function ModalCampanha({
   aberto,
+  chips,
   aoFechar,
   aoCriar,
 }: {
   aberto: boolean;
+  chips: Chip[];
   aoFechar: () => void;
   aoCriar: () => void;
 }) {
@@ -280,7 +349,10 @@ function ModalCampanha({
   const [objetivoChave, setObjetivoChave] = useState('reativar');
   const [objetivoLivre, setObjetivoLivre] = useState('');
   const [modelo, setModelo] = useState(OBJETIVOS[0].mensagem);
-  const [investimento, setInvestimento] = useState('');
+  const [numeroId, setNumeroId] = useState('');
+  // Público: uma lista de leads ou, sem escolha, toda a base que aceita marketing.
+  const [listaId, setListaId] = useState('');
+  const listas = useListasLeads(clinicaId, aberto ? 1 : 0);
   // Escolher outro objetivo troca a mensagem sugerida, mas nunca por cima de
   // um texto que a pessoa já ajustou.
   const [mensagemTocada, setMensagemTocada] = useState(false);
@@ -299,20 +371,34 @@ function ModalCampanha({
   async function salvar() {
     if (!nome.trim()) return;
     await executar(
-      () =>
-        supabase.from('campanhas').insert({
+      async () => {
+        const { data: criada, error } = await supabase
+          .from('campanhas')
+          .insert({
+            clinica_id: clinicaId,
+            unidade_id: unidadeId,
+            nome: nome.trim(),
+            objetivo: objetivo.trim() || null,
+            modelo_mensagem: modelo,
+            filtro_publico: listaId ? { lista_id: listaId } : {},
+            criado_por: membroId,
+          })
+          .select('id')
+          .single();
+        if (error || !criada) return { error };
+        if (!numeroId) return { error: null };
+        return supabase.from('campanha_numeros').insert({
           clinica_id: clinicaId,
-          unidade_id: unidadeId,
-          nome: nome.trim(),
-          objetivo: objetivo.trim() || null,
-          modelo_mensagem: modelo,
-          investimento: investimento ? Number(investimento) : 0,
-          criado_por: membroId,
-        }),
+          campanha_id: criada.id,
+          numero_whatsapp_id: numeroId,
+        });
+      },
       'Campanha criada como rascunho',
       () => {
         setNome('');
         setObjetivoLivre('');
+        setNumeroId('');
+        setListaId('');
         setMensagemTocada(false);
         aoCriar();
         aoFechar();
@@ -369,14 +455,29 @@ function ModalCampanha({
           rows={4}
         />
       </Campo>
-      <Campo rotulo="Investimento previsto (R$)">
-        <input
-          type="number"
-          min={0}
-          step="0.01"
-          value={investimento}
-          onChange={(e) => setInvestimento(e.target.value)}
-        />
+      <Campo rotulo="Público" dica="Só recebem contatos que aceitaram receber mensagens.">
+        <select value={listaId} onChange={(e) => setListaId(e.target.value)}>
+          <option value="">Toda a base de contatos</option>
+          {(listas.dados ?? []).map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.nome} ({contagem(l)})
+            </option>
+          ))}
+        </select>
+      </Campo>
+      <Campo
+        rotulo="Número responsável"
+        dica="Sem escolha, o disparo usa o número conectado com mais folga no dia."
+      >
+        <select value={numeroId} onChange={(e) => setNumeroId(e.target.value)}>
+          <option value="">Rotação automática</option>
+          {chips.map((chip) => (
+            <option key={chip.numero_id} value={chip.numero_id}>
+              {chip.apelido}
+              {chip.status === 'conectado' ? '' : ` (${ROTULO_STATUS_CHIP[chip.status] ?? chip.status})`}
+            </option>
+          ))}
+        </select>
       </Campo>
       <p className="modal-nota">
         <Smartphone size={14} /> O público e o disparo dependem de um número de WhatsApp conectado.

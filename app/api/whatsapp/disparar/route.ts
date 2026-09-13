@@ -27,7 +27,7 @@ export async function POST(req: Request) {
     // RLS: a campanha só existe para quem é da clínica.
     const { data: campanha } = await autorizacao.cliente
       .from('campanhas')
-      .select('id, clinica_id, nome, modelo_mensagem, status, envios_por_hora')
+      .select('id, clinica_id, nome, modelo_mensagem, status, envios_por_hora, filtro_publico')
       .eq('id', campanhaId)
       .maybeSingle();
 
@@ -36,15 +36,43 @@ export async function POST(req: Request) {
       return erro('Escreva a mensagem da campanha antes de disparar.');
     }
 
-    const { data: numeroChip } = await autorizacao.cliente
-      .from('numeros_whatsapp')
-      .select('id')
-      .eq('clinica_id', campanha.clinica_id)
-      .eq('ativo', true)
-      .eq('status', 'conectado')
-      .order('peso_rotacao', { ascending: false })
-      .limit(1)
-      .maybeSingle();
+    /**
+     * Número que dispara: o escolhido para a campanha, se houver; senão o
+     * conectado com maior peso na rotação. Um número escolhido mas fora do ar
+     * não cai na rotação em silêncio — a pessoa escolheu aquele chip por um
+     * motivo (aquecimento, reputação), e o erro deixa isso claro.
+     */
+    const { data: escolhidos } = await autorizacao.cliente
+      .from('campanha_numeros')
+      .select('numero_whatsapp_id, numeros_whatsapp(id, apelido, ativo, status)')
+      .eq('campanha_id', campanha.id);
+
+    const escolhido = (escolhidos ?? [])
+      .map((v) => v.numeros_whatsapp as { id: string; apelido: string; ativo: boolean; status: string } | null)
+      .find((n) => n?.ativo);
+
+    let numeroChip: { id: string } | null = null;
+
+    if (escolhido) {
+      if (escolhido.status !== 'conectado') {
+        return erro(
+          `O número "${escolhido.apelido}", responsável por esta campanha, não está conectado.`,
+          409,
+        );
+      }
+      numeroChip = { id: escolhido.id };
+    } else {
+      const { data: rotacao } = await autorizacao.cliente
+        .from('numeros_whatsapp')
+        .select('id')
+        .eq('clinica_id', campanha.clinica_id)
+        .eq('ativo', true)
+        .eq('status', 'conectado')
+        .order('peso_rotacao', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      numeroChip = rotacao ?? null;
+    }
 
     if (!numeroChip) {
       return erro(
@@ -61,7 +89,9 @@ export async function POST(req: Request) {
 
     const excluir = new Set((jaEnviados ?? []).map((e) => e.paciente_id));
 
-    const { data: publico } = await autorizacao.cliente
+    // Público: a lista escolhida na campanha ou, sem lista, toda a base.
+    const filtro = (campanha.filtro_publico ?? {}) as { lista_id?: string };
+    let consultaPublico = autorizacao.cliente
       .from('pacientes')
       .select('id, nome_completo, telefone')
       .eq('clinica_id', campanha.clinica_id)
@@ -69,6 +99,20 @@ export async function POST(req: Request) {
       .is('excluido_em', null)
       .limit(1000);
 
+    if (filtro.lista_id) {
+      const { data: itens } = await autorizacao.cliente
+        .from('listas_leads_itens')
+        .select('paciente_id')
+        .eq('lista_id', filtro.lista_id)
+        .limit(5000);
+      const idsDaLista = (itens ?? []).map((i) => i.paciente_id);
+      if (idsDaLista.length === 0) {
+        return erro('A lista escolhida para esta campanha está vazia.', 409);
+      }
+      consultaPublico = consultaPublico.in('id', idsDaLista);
+    }
+
+    const { data: publico } = await consultaPublico;
     const destinatarios = (publico ?? []).filter((p) => !excluir.has(p.id));
     if (destinatarios.length === 0) {
       return erro('Nenhum contato novo para esta campanha.', 409);

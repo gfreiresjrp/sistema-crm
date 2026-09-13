@@ -95,6 +95,41 @@ export function PainelConversas({ busca }: { busca: string }) {
   );
 
   /**
+   * Foto de perfil que falta ou expirou.
+   *
+   * A URL do WhatsApp vale poucos dias; contatos antigos ficavam só com as
+   * iniciais. Quem está sem foto, com a URL antiga (começa com http) ou ainda
+   * identificado só pelo telefone passa uma vez por sessão pela rota que busca
+   * a miniatura (e o nome) atual e guarda no banco. Sem número conectado a
+   * rota responde vazio, e não insistimos.
+   */
+  const fotosTentadas = useRef(new Set<string>());
+  useEffect(() => {
+    const pendentes = (caixa.dados ?? [])
+      .filter(
+        (l) => !l.foto_url || l.foto_url.startsWith('http') || l.nome_completo === l.telefone,
+      )
+      .map((l) => l.paciente_id)
+      .filter((id) => !fotosTentadas.current.has(id))
+      .slice(0, 15);
+    if (pendentes.length === 0) return;
+    pendentes.forEach((id) => fotosTentadas.current.add(id));
+
+    let ativo = true;
+    void whatsapp
+      .atualizarFotos(pendentes)
+      .then((r) => {
+        if (ativo && r.atualizados.length > 0) setPulso((n) => n + 1);
+      })
+      .catch(() => {
+        // Sem foto a conversa continua inteira; não vale um alerta.
+      });
+    return () => {
+      ativo = false;
+    };
+  }, [caixa.dados]);
+
+  /**
    * Chegada de mensagem em tempo real.
    *
    * Três camadas, porque nenhuma sozinha é confiável:
@@ -676,7 +711,7 @@ function ModalNovaConversa({
         </select>
       </Campo>
       <p className="modal-nota">
-        <UserPlus size={14} /> O contato entra como lead e pode virar oportunidade no CRM.
+        <UserPlus size={14} /> O contato entra como lead e pode virar oportunidade na Lista de Leads.
       </p>
     </Modal>
   );

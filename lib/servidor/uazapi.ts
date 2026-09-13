@@ -272,3 +272,21 @@ export async function checarNumeros(
 ): Promise<Array<{ query: string; isInWhatsapp: boolean }>> {
   return chamar('/chat/check', { corpo: { numbers: numeros }, token });
 }
+
+export type DetalhesChat = {
+  name?: string;
+  wa_name?: string;
+  wa_contactName?: string;
+  image?: string;
+  imagePreview?: string;
+};
+
+/**
+ * Nome e foto de perfil de um contato.
+ *
+ * Com `preview` a API devolve a miniatura, que é o que a caixa de entrada
+ * usa; a imagem cheia só faz sentido na ficha e pesa dez vezes mais.
+ */
+export async function detalhesDoChat(token: string, numero: string): Promise<DetalhesChat> {
+  return chamar<DetalhesChat>('/chat/details', { token, corpo: { number: numero, preview: true } });
+}

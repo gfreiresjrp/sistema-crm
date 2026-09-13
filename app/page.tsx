@@ -23,7 +23,7 @@ import { PainelDashboard } from '@/components/painel/painel-dashboard';
 import { PainelConversas } from '@/components/painel/painel-conversas';
 import { PainelAgenda } from '@/components/painel/painel-agenda';
 import { PainelContatos } from '@/components/painel/painel-contatos';
-import { PainelCRM } from '@/components/painel/painel-crm';
+import { PainelListas } from '@/components/painel/painel-listas';
 import { PainelReativacao } from '@/components/painel/painel-reativacao';
 import { PainelCampanhas } from '@/components/painel/painel-campanhas';
 import { PainelRelatorios } from '@/components/painel/painel-relatorios';
@@ -343,7 +343,7 @@ function Painel() {
           {vista === 'Conversas' && <PainelConversas busca={busca} />}
           {vista === 'Agenda' && <PainelAgenda />}
           {vista === 'Contatos' && <PainelContatos ir={setVista} />}
-          {vista === 'CRM & Funil' && <PainelCRM />}
+          {vista === 'Lista de Leads' && <PainelListas />}
           {vista === 'Reativação' && <PainelReativacao ir={setVista} />}
           {vista === 'Campanhas' && <PainelCampanhas />}
           {vista === 'Relatórios' && <PainelRelatorios />}

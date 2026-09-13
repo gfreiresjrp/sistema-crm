@@ -69,6 +69,12 @@ export const whatsapp = {
     mimetype?: string | null;
   }) => chamar<{ ok: true; mensagemId: string }>('/api/whatsapp/enviar-midia', { corpo: entrada }),
 
+  atualizarFotos: (pacienteIds: string[]) =>
+    chamar<{ atualizados: Array<{ id: string; foto_url: string | null }>; motivo?: string }>(
+      '/api/whatsapp/fotos',
+      { corpo: { pacienteIds } },
+    ),
+
   dispararCampanha: (campanhaId: string) =>
     chamar<{ ok: true; enviados: number; ignorados: number }>('/api/whatsapp/disparar', {
       corpo: { campanhaId },

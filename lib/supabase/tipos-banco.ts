@@ -1403,6 +1403,97 @@ export type Database = {
           },
         ]
       }
+      listas_leads: {
+        Row: {
+          atualizado_em: string
+          clinica_id: string
+          criado_em: string
+          criado_por: string | null
+          descricao: string | null
+          id: string
+          nome: string
+        }
+        Insert: {
+          atualizado_em?: string
+          clinica_id: string
+          criado_em?: string
+          criado_por?: string | null
+          descricao?: string | null
+          id?: string
+          nome: string
+        }
+        Update: {
+          atualizado_em?: string
+          clinica_id?: string
+          criado_em?: string
+          criado_por?: string | null
+          descricao?: string | null
+          id?: string
+          nome?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "listas_leads_clinica_id_fkey"
+            columns: ["clinica_id"]
+            isOneToOne: false
+            referencedRelation: "clinicas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "listas_leads_criado_por_fkey"
+            columns: ["criado_por"]
+            isOneToOne: false
+            referencedRelation: "membros_clinica"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      listas_leads_itens: {
+        Row: {
+          clinica_id: string
+          criado_em: string
+          id: string
+          lista_id: string
+          paciente_id: string
+        }
+        Insert: {
+          clinica_id: string
+          criado_em?: string
+          id?: string
+          lista_id: string
+          paciente_id: string
+        }
+        Update: {
+          clinica_id?: string
+          criado_em?: string
+          id?: string
+          lista_id?: string
+          paciente_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "listas_leads_itens_clinica_id_fkey"
+            columns: ["clinica_id"]
+            isOneToOne: false
+            referencedRelation: "clinicas"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "listas_leads_itens_lista_id_fkey"
+            columns: ["lista_id"]
+            isOneToOne: false
+            referencedRelation: "listas_leads"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "listas_leads_itens_paciente_id_fkey"
+            columns: ["paciente_id"]
+            isOneToOne: false
+            referencedRelation: "pacientes"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       membros_clinica: {
         Row: {
           ativo: boolean
@@ -1915,6 +2006,7 @@ export type Database = {
           criado_em: string
           data_nascimento: string | null
           email: string | null
+          foto_origem: string | null
           foto_url: string | null
           endereco: Json
           etiquetas: string[]
@@ -1941,6 +2033,7 @@ export type Database = {
           criado_em?: string
           data_nascimento?: string | null
           email?: string | null
+          foto_origem?: string | null
           foto_url?: string | null
           endereco?: Json
           etiquetas?: string[]
@@ -1967,6 +2060,7 @@ export type Database = {
           criado_em?: string
           data_nascimento?: string | null
           email?: string | null
+          foto_origem?: string | null
           foto_url?: string | null
           endereco?: Json
           etiquetas?: string[]
@@ -2729,6 +2823,24 @@ export type Database = {
         Args: { p_nome: string; p_unidade?: string }
         Returns: string
       }
+      criar_usuario_da_clinica: {
+        Args: {
+          p_clinica_id: string
+          p_email: string
+          p_senha: string
+          p_nome: string
+          p_papel?: Database["public"]["Enums"]["papel_usuario"]
+          p_unidade_id?: string | null
+          p_profissional?: boolean
+          p_especialidade?: string | null
+          p_registro?: string | null
+        }
+        Returns: string
+      }
+      redefinir_senha_membro: {
+        Args: { p_membro_id: string; p_senha: string }
+        Returns: undefined
+      }
       eh_gestor: { Args: { p_clinica_id: string }; Returns: boolean }
       prompt_assistente_padrao: { Args: never; Returns: string }
       wa_contexto_assistente: {
@@ -2809,6 +2921,10 @@ export type Database = {
       wa_credencial_por_instancia: {
         Args: { p_segredo: string; p_instancia: string }
         Returns: { numero_id: string; token: string }[]
+      }
+      wa_guardar_foto: {
+        Args: { p_segredo: string; p_paciente_id: string; p_foto: string | null; p_origem: string | null }
+        Returns: undefined
       }
       wa_registrar_mensagem: {
         Args: {
