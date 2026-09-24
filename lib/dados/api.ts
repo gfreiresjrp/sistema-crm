@@ -55,6 +55,9 @@ export const whatsapp = {
   desconectar: (numeroId: string) =>
     chamar<{ ok: true }>('/api/whatsapp/desconectar', { corpo: { numeroId } }),
 
+  excluir: (numeroId: string) =>
+    chamar<{ ok: true }>('/api/whatsapp/excluir', { corpo: { numeroId } }),
+
   enviar: (conversaId: string, texto: string) =>
     chamar<{ ok: true; mensagemId: string }>('/api/whatsapp/enviar', {
       corpo: { conversaId, texto },

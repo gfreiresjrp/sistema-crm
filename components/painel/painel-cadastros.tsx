@@ -734,6 +734,7 @@ function Numeros() {
   const [aberto, setAberto] = useState(false);
   const [pulso, setPulso] = useState(0);
   const [conectando, setConectando] = useState<NumeroWhatsapp | null>(null);
+  const [excluindo, setExcluindo] = useState<NumeroWhatsapp | null>(null);
 
   const lista = useConsulta<NumeroWhatsapp[]>(
     clinicaId
@@ -779,6 +780,18 @@ function Numeros() {
       () => whatsapp.desconectar(numero.id).then(() => ({ error: null })),
       `${numero.apelido} desconectado`,
       () => setPulso((n) => n + 1),
+    );
+  }
+
+  async function excluir() {
+    if (!excluindo) return;
+    await executar(
+      () => whatsapp.excluir(excluindo.id).then(() => ({ error: null })),
+      `${excluindo.apelido} excluído`,
+      () => {
+        setExcluindo(null);
+        setPulso((n) => n + 1);
+      },
     );
   }
 
@@ -845,6 +858,14 @@ function Numeros() {
                         <QrCode size={14} /> Conectar
                       </button>
                     )}
+                    <button
+                      className="icone-perigo"
+                      disabled={ocupado}
+                      onClick={() => setExcluindo(item)}
+                      aria-label={`Excluir ${item.apelido}`}
+                    >
+                      <Trash2 size={15} />
+                    </button>
                   </div>
                 </div>
               );
@@ -885,6 +906,18 @@ function Numeros() {
             onChange={(e) => setLimite(Number(e.target.value))}
           />
         </Campo>
+      </Modal>
+
+      <Modal
+        titulo={`Excluir ${excluindo?.apelido ?? 'número'}?`}
+        descricao="O aparelho é desconectado e o número sai da lista. Conversas e campanhas antigas continuam no histórico."
+        aberto={Boolean(excluindo)}
+        aoFechar={() => setExcluindo(null)}
+        aoConfirmar={excluir}
+        rotuloConfirmar="Excluir"
+        salvando={ocupado}
+      >
+        <p>Para usar este número de novo, cadastre e conecte pelo QR Code outra vez.</p>
       </Modal>
 
       {conectando && (
