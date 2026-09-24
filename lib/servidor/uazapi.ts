@@ -26,8 +26,26 @@ export type Instancia = {
 export type RespostaConexao = {
   connected?: boolean;
   loggedIn?: boolean;
+  status?: { connected?: boolean; loggedIn?: boolean } | string;
   instance?: Instancia;
 };
+
+/**
+ * Se o aparelho está pareado e logado.
+ *
+ * Cada rota responde num formato: `/instance/connect` traz `loggedIn` na raiz,
+ * `/instance/status` aninha em `status`, e o webhook de conexão só manda a
+ * instância. `instance.status === 'connected'` aparece nos três.
+ */
+export function estaConectado(resposta: RespostaConexao): boolean {
+  const aninhado = typeof resposta.status === 'object' && resposta.status ? resposta.status : {};
+  return (
+    resposta.loggedIn === true ||
+    aninhado.loggedIn === true ||
+    resposta.instance?.status?.toLowerCase() === 'connected' ||
+    (typeof resposta.status === 'string' && resposta.status.toLowerCase() === 'connected')
+  );
+}
 
 export class ErroUazapi extends Error {
   constructor(

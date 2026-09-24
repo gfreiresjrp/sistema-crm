@@ -1,5 +1,5 @@
 import { anonimo, chaveWebhook, falha, segredo } from '@/lib/servidor/banco';
-import { baixarMidia } from '@/lib/servidor/uazapi';
+import { baixarMidia, estaConectado, type RespostaConexao } from '@/lib/servidor/uazapi';
 import { baixarImagemComoDataUrl } from '@/lib/servidor/imagem';
 import { variavel } from '@/lib/servidor/ambiente';
 import { responderConversa } from '@/lib/servidor/assistente';
@@ -141,13 +141,13 @@ export async function POST(req: Request) {
     const servidor = anonimo();
 
     if (evento.startsWith('connection')) {
-      const conectado =
-        dados.loggedIn === true || texto(dados.status).toLowerCase() === 'connected';
+      const conectado = estaConectado(dados as RespostaConexao);
+      const instanciaDados = (dados.instance ?? {}) as Record<string, unknown>;
       await servidor.rpc('wa_atualizar_conexao', {
         p_segredo: chave,
         p_instancia: instancia,
         p_status: conectado ? 'conectado' : 'desconectado',
-        p_numero: primeiroTexto(dados.owner) || null,
+        p_numero: primeiroTexto(dados.owner, instanciaDados.owner) || null,
       });
       return Response.json({ ok: true, tratado: 'conexao' });
     }

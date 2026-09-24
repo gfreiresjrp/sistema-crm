@@ -10,6 +10,7 @@ import {
   conectarInstancia,
   configurarWebhook,
   criarInstancia,
+  estaConectado,
   statusInstancia,
 } from '@/lib/servidor/uazapi';
 import { anonimo } from '@/lib/servidor/banco';
@@ -82,16 +83,17 @@ export async function POST(req: Request) {
 
     const conexao = await conectarInstancia(token, telefone || undefined);
     const atual = conexao.instance ?? (await statusInstancia(token)).instance;
+    const conectado = estaConectado(conexao);
 
     await servidor.rpc('wa_atualizar_conexao', {
       p_segredo: chave,
       p_instancia: instancia!,
-      p_status: conexao.loggedIn ? 'conectado' : 'conectando',
+      p_status: conectado ? 'conectado' : 'conectando',
     });
 
     return Response.json({
       instancia,
-      conectado: Boolean(conexao.loggedIn),
+      conectado,
       qrcode: atual?.qrcode ?? null,
       paircode: atual?.paircode ?? null,
       status: atual?.status ?? null,

@@ -1,5 +1,5 @@
 import { anonimo, erro, exigirUsuario, falha, numeroDoUsuario, segredo } from '@/lib/servidor/banco';
-import { statusInstancia } from '@/lib/servidor/uazapi';
+import { estaConectado, statusInstancia } from '@/lib/servidor/uazapi';
 
 /** Estado da conexão de um número, consultado direto na UazApi. */
 export async function GET(req: Request) {
@@ -24,7 +24,7 @@ export async function GET(req: Request) {
     if (!linha) return Response.json({ vinculado: false, conectado: false });
 
     const estado = await statusInstancia(linha.token);
-    const conectado = Boolean(estado.loggedIn);
+    const conectado = estaConectado(estado);
 
     await servidor.rpc('wa_atualizar_conexao', {
       p_segredo: chave,
