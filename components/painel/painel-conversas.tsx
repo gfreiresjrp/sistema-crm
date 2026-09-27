@@ -339,6 +339,7 @@ export function PainelConversas({ busca }: { busca: string }) {
     [chipsDasConversas.dados],
   );
   const nomeDoChip = new Map((chips.dados ?? []).map((c) => [c.id, c.apelido]));
+  const chipPrincipal = (chips.dados ?? []).find((c) => c.peso_rotacao === 0)?.id ?? null;
   // Um chip que saiu da lista (excluído, desativado) não pode deixar a caixa vazia.
   const chipValido = chipFiltro && nomeDoChip.has(chipFiltro) ? chipFiltro : '';
 
@@ -720,11 +721,17 @@ export function PainelConversas({ busca }: { busca: string }) {
                       className={`message ${m.autor === 'paciente' ? 'client' : 'ai'}`}
                       key={m.id}
                     >
-                      {m.autor === 'ia' && (
-                        <small>
-                          <Sparkles size={11} /> IA
-                        </small>
-                      )}
+                      {m.autor === 'ia' &&
+                        (m.numero_whatsapp_id && chipPrincipal === m.numero_whatsapp_id ? (
+                          // A abertura com que o principal assume o lead: fala da equipe.
+                          <small>
+                            <Check size={11} /> EQUIPE
+                          </small>
+                        ) : (
+                          <small>
+                            <Sparkles size={11} /> IA
+                          </small>
+                        ))}
                       {m.autor === 'humano' && <small>VOCÊ</small>}
                       {m.autor === 'sistema' && (
                         <small>
