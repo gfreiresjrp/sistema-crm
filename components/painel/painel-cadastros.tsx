@@ -845,7 +845,7 @@ function Numeros() {
         }
       >
         {(itens) => (
-          <div className="data-table">
+          <div className="data-table tabela-numeros">
             <header>
               <span>APELIDO</span>
               <span>NÚMERO</span>

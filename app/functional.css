@@ -3211,3 +3211,14 @@ textarea.prompt {
   opacity: 0;
   pointer-events: none;
 }
+
+/* Números: as três ações cabem numa linha só, sem empilhar. */
+.data-table.tabela-numeros header,
+.data-table.tabela-numeros > div {
+  grid-template-columns: minmax(200px, 2fr) minmax(120px, 1fr) minmax(110px, 1fr) 56px 64px auto;
+  min-width: 860px;
+}
+
+.tabela-numeros .acoes-evento {
+  flex-wrap: nowrap;
+}
