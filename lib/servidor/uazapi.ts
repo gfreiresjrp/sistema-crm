@@ -170,27 +170,28 @@ export async function enviarTexto(
 /**
  * Dispara uma campanha. A UazApi cuida da fila e do intervalo entre envios,
  * que é o que mantém o número longe do bloqueio.
+ *
+ * Usa o envio avançado porque cada contato recebe o próprio texto: o simples
+ * manda a mesma string para todos, e o "Oi {{primeiro_nome}}!" chegava assim,
+ * com as chaves, no celular do lead.
  */
 export async function criarDisparo(
   token: string,
   entrada: {
-    numeros: string[];
-    texto: string;
+    mensagens: Array<{ numero: string; texto: string }>;
     pasta: string;
     atrasoMin: number;
     atrasoMax: number;
     agendadoPara?: number;
   },
 ): Promise<{ folder_id?: string; count?: number; status?: string }> {
-  return chamar('/sender/simple', {
+  return chamar('/sender/advanced', {
     corpo: {
-      numbers: entrada.numeros,
-      type: 'text',
-      text: entrada.texto,
-      folder: entrada.pasta,
+      info: entrada.pasta,
       delayMin: entrada.atrasoMin,
       delayMax: entrada.atrasoMax,
       scheduled_for: entrada.agendadoPara ?? 0,
+      messages: entrada.mensagens.map((m) => ({ number: m.numero, type: 'text', text: m.texto })),
     },
     token,
   });
@@ -232,15 +233,24 @@ export async function enviarMidia(
  * Situação de cada mensagem de uma fila de disparo. É por aqui que o funil
  * descobre quem realmente recebeu — a criação da fila só enfileira.
  */
+export type MensagemDoDisparo = {
+  number?: string;
+  chatid?: string;
+  status?: string;
+  messageid?: string;
+  text?: string;
+};
+
 export async function listarMensagensDoDisparo(
   token: string,
   pastaId: string,
-): Promise<Array<{ number?: string; chatid?: string; status?: string }>> {
-  const resposta = await chamar<
-    { messages?: Array<{ number?: string; chatid?: string; status?: string }> } | Array<unknown>
-  >('/sender/listmessages', { corpo: { folder_id: pastaId, limit: 1000 }, token });
+): Promise<MensagemDoDisparo[]> {
+  const resposta = await chamar<{ messages?: MensagemDoDisparo[] } | MensagemDoDisparo[]>(
+    '/sender/listmessages',
+    { corpo: { folder_id: pastaId, limit: 1000 }, token },
+  );
 
-  if (Array.isArray(resposta)) return resposta as Array<{ status?: string }>;
+  if (Array.isArray(resposta)) return resposta;
   return resposta?.messages ?? [];
 }
 

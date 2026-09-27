@@ -7,7 +7,9 @@ import {
   Check,
   MessageCircle,
   PanelRight,
+  Megaphone,
   Plus,
+  Smartphone,
   Sparkles,
   UserPlus,
 } from 'lucide-react';
@@ -24,6 +26,7 @@ import { MidiaMensagem } from './midia-mensagem';
 import {
   hora,
   ROTULO_ORIGEM,
+  ROTULO_STATUS_CHIP,
   telefoneDigitos,
   tempoRelativo,
 } from '@/lib/dados/formato';
@@ -58,8 +61,11 @@ type Mensagem = {
   conteudo: string | null;
   tipo_conteudo: string;
   midia_url: string | null;
+  numero_whatsapp_id: string | null;
   criado_em: string;
 };
+
+type ChipDaClinica = { id: string; apelido: string; numero: string | null; status: string };
 
 export function PainelConversas({ busca }: { busca: string }) {
   const { clinicaId, unidadeId, membroId } = useClinica();
@@ -225,13 +231,61 @@ export function PainelConversas({ busca }: { busca: string }) {
       ? () =>
           supabase
             .from('mensagens')
-            .select('id, autor, conteudo, tipo_conteudo, midia_url, criado_em')
+            .select('id, autor, conteudo, tipo_conteudo, midia_url, numero_whatsapp_id, criado_em')
             .eq('conversa_id', abertaId)
             .order('criado_em')
             .limit(200)
       : null,
     [abertaId], [pulso],
   );
+
+  /**
+   * Os números da clínica e o que atende a conversa aberta.
+   *
+   * A conversa guarda o chip em `numero_whatsapp_id`, e é por ele que sai
+   * toda mensagem digitada aqui. Antes isso ficava invisível: não havia como
+   * saber de qual número a resposta tinha saído.
+   */
+  const chips = useConsulta<ChipDaClinica[]>(
+    clinicaId
+      ? () =>
+          supabase
+            .from('numeros_whatsapp')
+            .select('id, apelido, numero, status')
+            .eq('clinica_id', clinicaId)
+            .eq('ativo', true)
+            .order('apelido')
+      : null,
+    [clinicaId], [pulso],
+  );
+
+  const chipDaConversa = useConsulta<{ numero_whatsapp_id: string | null } | null>(
+    abertaId
+      ? () =>
+          supabase
+            .from('conversas')
+            .select('numero_whatsapp_id')
+            .eq('id', abertaId)
+            .maybeSingle()
+      : null,
+    [abertaId], [pulso],
+  );
+
+  const nomeDoChip = new Map((chips.dados ?? []).map((c) => [c.id, c.apelido]));
+  const chipAtualId = chipDaConversa.dados?.numero_whatsapp_id ?? '';
+
+  async function trocarChip(numeroId: string) {
+    if (!atual || !numeroId || numeroId === chipAtualId) return;
+    await executar(
+      () =>
+        supabase
+          .from('conversas')
+          .update({ numero_whatsapp_id: numeroId })
+          .eq('id', atual.conversa_id),
+      `Respostas desta conversa saem por "${nomeDoChip.get(numeroId) ?? 'número escolhido'}"`,
+      () => setPulso((n) => n + 1),
+    );
+  }
 
   useEffect(() => {
     if (!abertaId || abertaNaoLidas <= 0) return;
@@ -505,6 +559,29 @@ export function PainelConversas({ busca }: { busca: string }) {
               </div>
 
               <div className="chat-acoes">
+                <label className="seletor-chip" title="Número de WhatsApp que envia as mensagens desta conversa">
+                  <Smartphone size={14} />
+                  <select
+                    value={chipAtualId}
+                    disabled={ocupado || chipDaConversa.carregando}
+                    onChange={(e) => trocarChip(e.target.value)}
+                    aria-label="Número que envia as mensagens desta conversa"
+                  >
+                    {!chipAtualId && <option value="">Escolher número</option>}
+                    {(chips.dados ?? []).map((chip) => (
+                      <option
+                        key={chip.id}
+                        value={chip.id}
+                        disabled={chip.status !== 'conectado' && chip.id !== chipAtualId}
+                      >
+                        {chip.apelido}
+                        {chip.status === 'conectado'
+                          ? ''
+                          : ` (${ROTULO_STATUS_CHIP[chip.status] ?? chip.status})`}
+                      </option>
+                    ))}
+                  </select>
+                </label>
                 <button className="secondary-btn" onClick={alternarAtendimento} disabled={ocupado}>
                   {atual.ia_ativa ? 'Assumir conversa' : 'Devolver para a IA'}
                 </button>
@@ -550,6 +627,11 @@ export function PainelConversas({ busca }: { busca: string }) {
                         </small>
                       )}
                       {m.autor === 'humano' && <small>VOCÊ</small>}
+                      {m.autor === 'sistema' && (
+                        <small>
+                          <Megaphone size={11} /> CAMPANHA
+                        </small>
+                      )}
                       {m.midia_url && (
                         <MidiaMensagem
                           midiaUrl={m.midia_url}
@@ -558,7 +640,12 @@ export function PainelConversas({ busca }: { busca: string }) {
                         />
                       )}
                       {m.conteudo && <p>{m.conteudo}</p>}
-                      <time>{hora(m.criado_em)}</time>
+                      <time>
+                        {m.autor !== 'paciente' && m.numero_whatsapp_id && nomeDoChip.has(m.numero_whatsapp_id)
+                          ? `${nomeDoChip.get(m.numero_whatsapp_id)} · `
+                          : ''}
+                        {hora(m.criado_em)}
+                      </time>
                     </div>
                   ))
                 }

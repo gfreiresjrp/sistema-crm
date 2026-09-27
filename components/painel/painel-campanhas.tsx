@@ -32,6 +32,16 @@ export type DesempenhoCampanha = {
   taxa_resposta_percentual: number | null;
 };
 
+/**
+ * Ritmo do disparo, em envios por hora. É o que define o intervalo entre uma
+ * mensagem e a próxima (com folga aleatória, para não parecer robô).
+ */
+export const RITMOS: Array<{ porHora: number; rotulo: string }> = [
+  { porHora: 240, rotulo: 'Rápido — uma a cada 10–20 s' },
+  { porHora: 120, rotulo: 'Normal — uma a cada 20–40 s' },
+  { porHora: 60, rotulo: 'Cuidadoso — uma a cada 40–80 s (chip novo)' },
+];
+
 /** Vínculo campanha → número responsável (tabela `campanha_numeros`). */
 type VinculoNumero = {
   id: string;
@@ -96,6 +106,28 @@ export function PainelCampanhas() {
     [clinicaId], [pulso],
   );
 
+  const ritmos = useConsulta<Array<{ id: string; envios_por_hora: number | null }>>(
+    clinicaId
+      ? () => supabase.from('campanhas').select('id, envios_por_hora').eq('clinica_id', clinicaId)
+      : null,
+    [clinicaId], [pulso],
+  );
+  const ritmoDaCampanha = new Map(
+    (ritmos.dados ?? []).map((r) => [r.id, r.envios_por_hora ?? 240]),
+  );
+
+  async function definirRitmo(campanha: DesempenhoCampanha, porHora: number) {
+    await executar(
+      () =>
+        supabase
+          .from('campanhas')
+          .update({ envios_por_hora: porHora })
+          .eq('id', campanha.campanha_id),
+      `Ritmo de "${campanha.campanha}" atualizado — vale para o próximo disparo`,
+      () => setPulso((n) => n + 1),
+    );
+  }
+
   const numeroDaCampanha = new Map(
     (vinculos.dados ?? []).map((v) => [v.campanha_id, v.numero_whatsapp_id]),
   );
@@ -148,7 +180,7 @@ export function PainelCampanhas() {
         const r = await whatsapp.dispararCampanha(campanha.campanha_id);
         return { error: null, resultado: r };
       },
-      `Disparo enfileirado para "${campanha.campanha}"`,
+      `Disparo iniciado para "${campanha.campanha}" — a lista inteira vai sair sozinha, no ritmo escolhido`,
       () => setPulso((n) => n + 1),
     );
   }
@@ -224,6 +256,7 @@ export function PainelCampanhas() {
               {linhas.map((linha) => (
                 <div key={linha.campanha_id}>
                   <span>{linha.campanha}</span>
+                  <div className="celula-disparo">
                   <select
                     className="select-etapa"
                     value={numeroDaCampanha.get(linha.campanha_id) ?? ''}
@@ -239,7 +272,29 @@ export function PainelCampanhas() {
                       </option>
                     ))}
                   </select>
-                  <span>{numero(linha.enviados)}</span>
+                  <select
+                    className="select-etapa"
+                    value={ritmoDaCampanha.get(linha.campanha_id) ?? 240}
+                    disabled={ocupado}
+                    onChange={(e) => definirRitmo(linha, Number(e.target.value))}
+                    aria-label={`Ritmo de envio de ${linha.campanha}`}
+                  >
+                    {RITMOS.map((r) => (
+                      <option key={r.porHora} value={r.porHora}>
+                        {r.rotulo.split(' — ')[0]}
+                      </option>
+                    ))}
+                  </select>
+                  </div>
+                  <span>
+                    {numero(linha.enviados)}
+                    {Number(linha.abordados) > Number(linha.enviados) && (
+                      <small className="na-fila">
+                        {' '}
+                        +{numero(Number(linha.abordados) - Number(linha.enviados))} na fila
+                      </small>
+                    )}
+                  </span>
                   <span>{numero(linha.responderam)}</span>
                   <span>{numero(linha.agendaram)}</span>
                   <span>{linha.receita ? moeda(linha.receita) : '—'}</span>
@@ -250,7 +305,7 @@ export function PainelCampanhas() {
                       onClick={() => disparar(linha)}
                       title={
                         conectados
-                          ? 'Enfileira os envios na UazApi'
+                          ? 'Envia para toda a lista, um contato após o outro, no ritmo escolhido'
                           : 'Conecte um número de WhatsApp primeiro'
                       }
                     >
@@ -350,6 +405,7 @@ function ModalCampanha({
   const [objetivoLivre, setObjetivoLivre] = useState('');
   const [modelo, setModelo] = useState(OBJETIVOS[0].mensagem);
   const [numeroId, setNumeroId] = useState('');
+  const [porHora, setPorHora] = useState(240);
   // Público: uma lista de leads ou, sem escolha, toda a base que aceita marketing.
   const [listaId, setListaId] = useState('');
   const listas = useListasLeads(clinicaId, aberto ? 1 : 0);
@@ -381,6 +437,7 @@ function ModalCampanha({
             objetivo: objetivo.trim() || null,
             modelo_mensagem: modelo,
             filtro_publico: listaId ? { lista_id: listaId } : {},
+            envios_por_hora: porHora,
             criado_por: membroId,
           })
           .select('id')
@@ -398,6 +455,7 @@ function ModalCampanha({
         setNome('');
         setObjetivoLivre('');
         setNumeroId('');
+        setPorHora(240);
         setListaId('');
         setMensagemTocada(false);
         aoCriar();
@@ -479,6 +537,18 @@ function ModalCampanha({
           ))}
         </select>
       </Campo>
+      <Campo
+        rotulo="Ritmo de envio"
+        dica="Um clique em Disparar envia para a lista inteira; o ritmo só define o intervalo entre uma mensagem e outra."
+      >
+        <select value={porHora} onChange={(e) => setPorHora(Number(e.target.value))}>
+          {RITMOS.map((r) => (
+            <option key={r.porHora} value={r.porHora}>
+              {r.rotulo}
+            </option>
+          ))}
+        </select>
+      </Campo>
       <p className="modal-nota">
         <Smartphone size={14} /> O público e o disparo dependem de um número de WhatsApp conectado.
       </p>
@@ -488,7 +558,10 @@ function ModalCampanha({
 
 export function funilDaCampanha(c: DesempenhoCampanha) {
   return [
-    { rotulo: 'Abordados', valor: Number(c.abordados ?? 0), cor: '#6d5527' },
+    // Só conta o que a UazApi confirmou como enviado; o que ainda está na fila
+    // não é "abordado" — era essa diferença que fazia a campanha parecer ter
+    // falado com gente que não recebeu nada.
+    { rotulo: 'Enviados', valor: Number(c.enviados ?? 0), cor: '#6d5527' },
     { rotulo: 'Responderam', valor: Number(c.responderam ?? 0), cor: '#96742f' },
     { rotulo: 'Agendaram', valor: Number(c.agendaram ?? 0), cor: '#c8a15b' },
     { rotulo: 'Compareceram', valor: Number(c.compareceram ?? 0), cor: '#e7d0a1' },

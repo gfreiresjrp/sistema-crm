@@ -3,6 +3,7 @@ import { baixarMidia, estaConectado, type RespostaConexao } from '@/lib/servidor
 import { baixarImagemComoDataUrl } from '@/lib/servidor/imagem';
 import { variavel } from '@/lib/servidor/ambiente';
 import { responderConversa } from '@/lib/servidor/assistente';
+import { emSegundoPlano } from '@/lib/servidor/segundo-plano';
 
 /**
  * Recebe os eventos da UazApi.
@@ -306,22 +307,23 @@ export async function POST(req: Request) {
       return Response.json({ ok: true, mensagemId: gravada.mensagem_id, respondeu: false });
     }
 
-    let resposta;
-    try {
-      resposta = await responderConversa(gravada.conversa_id, token, telefone);
-    } catch (e) {
-      // A mensagem do paciente já está salva; falhar aqui não pode desfazer
-      // isso nem pedir reentrega do evento.
-      console.error('[assistente]', e instanceof Error ? e.message : e);
-      return Response.json({ ok: true, mensagemId: gravada.mensagem_id, respondeu: false });
-    }
+    // A resposta sai já; a IA trabalha depois, sem depender de a UazApi
+    // continuar esperando.
+    const conversaId = gravada.conversa_id;
+    await emSegundoPlano(
+      responderConversa(conversaId, token, telefone)
+        .then((resposta) => {
+          if (!resposta.respondeu) {
+            console.warn(`[assistente] conversa ${conversaId} sem resposta: ${resposta.motivo}`);
+          }
+        })
+        .catch((e) => {
+          // A mensagem do paciente já está salva; a falha fica no log.
+          console.error(`[assistente] conversa ${conversaId}:`, e instanceof Error ? e.message : e);
+        }),
+    );
 
-    return Response.json({
-      ok: true,
-      mensagemId: gravada.mensagem_id,
-      respondeu: resposta.respondeu,
-      ...(resposta.respondeu ? {} : { motivo: resposta.motivo }),
-    });
+    return Response.json({ ok: true, mensagemId: gravada.mensagem_id, assistente: 'acionada' });
   } catch (e) {
     return falha(e);
   }

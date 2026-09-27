@@ -3038,3 +3038,51 @@ textarea.prompt {
   font-size: 11.5px;
   color: var(--muted);
 }
+
+/* ------------------------------------------------ chip da conversa aberta */
+.seletor-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  height: 32px;
+  color: var(--gold-tinta);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.seletor-chip select {
+  max-width: 190px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  outline: none;
+  cursor: pointer;
+}
+
+@media (max-width: 860px) {
+  .seletor-chip {
+    flex: 1 1 100%;
+  }
+
+  .seletor-chip select {
+    max-width: none;
+    width: 100%;
+  }
+}
+
+.celula-disparo {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.na-fila {
+  font-size: 11px;
+  color: var(--muted);
+  white-space: nowrap;
+}

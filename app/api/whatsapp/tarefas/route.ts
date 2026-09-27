@@ -19,6 +19,25 @@ function digitos(valor: string | undefined): string {
   return (valor ?? '').split('@')[0].replace(/\D/g, '');
 }
 
+/**
+ * As duas grafias de um celular brasileiro.
+ *
+ * O WhatsApp devolve muitos números sem o nono dígito (55 51 9380-4616), mas o
+ * cadastro guarda com ele (55 51 9 9380-4616). Mandando só uma grafia, metade
+ * dos envios entregues ficava "pendente" para sempre e a campanha mostrava
+ * abordados que ninguém conseguia confirmar. O banco casa a que existir.
+ */
+function grafias(numero: string): string[] {
+  if (!numero.startsWith('55')) return [numero];
+  if (numero.length === 12 && /[6-9]/.test(numero[4])) {
+    return [numero, `${numero.slice(0, 4)}9${numero.slice(4)}`];
+  }
+  if (numero.length === 13 && numero[4] === '9') {
+    return [numero, `${numero.slice(0, 4)}${numero.slice(5)}`];
+  }
+  return [numero];
+}
+
 export async function POST(req: Request) {
   try {
     const url = new URL(req.url);
@@ -44,7 +63,22 @@ export async function POST(req: Request) {
     });
     if (erroFila) console.error('[tarefas] ler fila:', erroFila.message);
 
-    for (const item of fila ?? []) {
+    /**
+     * Um item por vez, uma vez só.
+     *
+     * A fila pode trazer o mesmo follow-up uma vez por chip conectado; enviar
+     * todas as linhas fez o mesmo contato receber a mensagem três vezes, de
+     * três números diferentes.
+     */
+    const vistos = new Set<string>();
+    const unicos = (fila ?? []).filter((item) => {
+      const chaveItem = `${item.tipo}:${item.id}`;
+      if (vistos.has(chaveItem)) return false;
+      vistos.add(chaveItem);
+      return true;
+    });
+
+    for (const item of unicos) {
       try {
         await enviarTexto(item.token, item.telefone, item.texto);
         await servidor.rpc('wa_concluir_envio', {
@@ -85,8 +119,8 @@ export async function POST(req: Request) {
           const numero = digitos(m.number ?? m.chatid);
           if (!numero) continue;
           const estado = (m.status ?? '').toLowerCase();
-          if (ENTREGUES.has(estado)) entregues.push(numero);
-          else if (FALHADOS.has(estado)) falhados.push(numero);
+          if (ENTREGUES.has(estado)) entregues.push(...grafias(numero));
+          else if (FALHADOS.has(estado)) falhados.push(...grafias(numero));
         }
 
         if (entregues.length || falhados.length) {

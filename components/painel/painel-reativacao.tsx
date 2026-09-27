@@ -18,6 +18,20 @@ type Envio = {
   pacientes: { nome_completo: string } | null;
 };
 
+/**
+ * O que aconteceu de fato com cada envio. "Pendente" era o status cru do
+ * banco e parecia envio feito; aqui fica explícito que ainda está na fila.
+ */
+const SITUACAO_ENVIO: Record<string, string> = {
+  pendente: 'na fila, ainda não saiu',
+  enviado: 'mensagem enviada',
+  entregue: 'mensagem entregue',
+  lido: 'leu a mensagem',
+  respondido: 'respondeu',
+  falhou: 'envio falhou',
+  cancelado: 'envio cancelado',
+};
+
 export function PainelReativacao({ ir }: { ir: (v: 'Campanhas') => void }) {
   const { clinicaId } = useClinica();
   const campanhas = useDesempenhoCampanhas(clinicaId);
@@ -110,7 +124,9 @@ export function PainelReativacao({ ir }: { ir: (v: 'Campanhas') => void }) {
                           <p>
                             <b>
                               {envio.pacientes?.nome_completo ?? 'Contato'}
-                              {envio.respondido_em ? ' respondeu' : ` — ${envio.status}`}
+                              {envio.respondido_em
+                                ? ' respondeu'
+                                : ` — ${SITUACAO_ENVIO[envio.status] ?? envio.status}`}
                             </b>
                             <small>
                               {tempoRelativo(envio.respondido_em ?? envio.enviado_em ?? envio.criado_em)}

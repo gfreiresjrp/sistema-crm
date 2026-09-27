@@ -129,17 +129,6 @@ function montarPrompt(contexto: Contexto): string {
   );
 }
 
-/** Quantas respostas a IA deu desde a última vez que um humano falou. */
-function respostasSeguidasDaIa(mensagens: Contexto['mensagens']): number {
-  let total = 0;
-  for (let i = mensagens.length - 1; i >= 0; i -= 1) {
-    const autor = mensagens[i].autor;
-    if (autor === 'humano') break;
-    if (autor === 'ia') total += 1;
-  }
-  return total;
-}
-
 export type ResultadoAssistente =
   | { respondeu: true; texto: string }
   | { respondeu: false; motivo: string };
@@ -177,15 +166,14 @@ export async function responderConversa(
     return { respondeu: false, motivo: 'horário de silêncio' };
   }
 
-  const limite = c.escalar_para_humano_apos ?? 0;
-  if (limite > 0 && respostasSeguidasDaIa(contexto.mensagens) >= limite) {
-    // Passa a bola: a IA já tentou o suficiente sem um humano entrar.
-    await servidor
-      .from('conversas')
-      .update({ ia_ativa: false, status: 'pendente' })
-      .eq('id', conversaId);
-    return { respondeu: false, motivo: 'escalado para atendimento humano' };
-  }
+  /*
+   * Não há mais corte por número de respostas. O limite
+   * `escalar_para_humano_apos` (3 por padrão, e sem campo na tela) fazia a IA
+   * se calar para sempre na quarta mensagem de qualquer conversa: a troca para
+   * atendimento humano tentava gravar sem permissão, falhava em silêncio, e a
+   * conversa seguia marcada como automática sem ninguém responder. Quem passa a
+   * conversa para uma pessoa é o botão "Assumir conversa".
+   */
 
   const prompt = montarPrompt(contexto);
   if (!prompt.trim()) return { respondeu: false, motivo: 'prompt vazio' };
