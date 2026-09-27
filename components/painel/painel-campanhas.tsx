@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   CheckCircle2,
   FileText,
@@ -456,6 +456,50 @@ export function PainelCampanhas() {
   );
 }
 
+function tamanhoLegivel(bytes: number): string {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1).replace('.', ',')} MB`;
+}
+
+/**
+ * Como o anexo vai chegar no WhatsApp do lead: a imagem em miniatura, o PDF
+ * com a primeira página e os demais documentos como cartão com nome e tamanho.
+ * O arquivo ainda não subiu — a prévia vem do próprio arquivo, no navegador.
+ */
+function PreviaAnexo({ arquivo, aoRemover }: { arquivo: File; aoRemover: () => void }) {
+  // Endereço local do arquivo, liberado quando ele sai da tela.
+  const url = useMemo(() => URL.createObjectURL(arquivo), [arquivo]);
+  useEffect(() => () => URL.revokeObjectURL(url), [url]);
+
+  const imagem = arquivo.type.startsWith('image/');
+  const pdf = arquivo.type === 'application/pdf';
+  const extensao = (arquivo.name.split('.').pop() ?? '').toUpperCase();
+
+  return (
+    <div className="previa-anexo">
+      {imagem && (
+        // oxlint-disable-next-line no-img-element -- endereço local (blob:) do arquivo escolhido
+        <img src={url} alt={`Prévia de ${arquivo.name}`} />
+      )}
+      {pdf && (
+        <iframe src={`${url}#toolbar=0&navpanes=0&view=FitH`} title={`Prévia de ${arquivo.name}`} />
+      )}
+      <div className="previa-anexo-rodape">
+        {imagem ? <ImageIcon size={16} /> : <FileText size={16} />}
+        <span>
+          <b>{arquivo.name}</b>
+          <small>
+            {pdf ? 'PDF' : imagem ? 'Imagem' : extensao || 'Documento'} · {tamanhoLegivel(arquivo.size)}
+          </small>
+        </span>
+        <button type="button" className="botao-icone" onClick={aoRemover} aria-label="Remover anexo">
+          <X size={14} />
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /** Os dois campos que dizem à IA como tratar quem responder a campanha. */
 function CamposIa({
   modo,
@@ -867,18 +911,7 @@ function ModalCampanha({
         dica="Vai junto com cada mensagem; o texto acima vira a legenda. Até 25 MB."
       >
         {arquivo ? (
-          <div className="anexo-campanha">
-            {arquivo.type.startsWith('image/') ? <ImageIcon size={16} /> : <FileText size={16} />}
-            <span>{arquivo.name}</span>
-            <button
-              type="button"
-              className="botao-icone"
-              onClick={() => setArquivo(null)}
-              aria-label="Remover anexo"
-            >
-              <X size={14} />
-            </button>
-          </div>
+          <PreviaAnexo arquivo={arquivo} aoRemover={() => setArquivo(null)} />
         ) : (
           <label className="anexo-campanha anexo-vazio">
             <Paperclip size={16} />
