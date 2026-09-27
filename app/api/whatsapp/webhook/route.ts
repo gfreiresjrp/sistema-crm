@@ -2,8 +2,8 @@ import { anonimo, chaveWebhook, falha, segredo } from '@/lib/servidor/banco';
 import { baixarMidia, estaConectado, type RespostaConexao } from '@/lib/servidor/uazapi';
 import { baixarImagemComoDataUrl } from '@/lib/servidor/imagem';
 import { variavel } from '@/lib/servidor/ambiente';
-import { responderConversa } from '@/lib/servidor/assistente';
-import { emSegundoPlano } from '@/lib/servidor/segundo-plano';
+import { enfileirar } from '@/lib/servidor/fila-ia';
+import { lerFuncao } from '@/lib/servidor/funcao-chip';
 
 /**
  * Recebe os eventos da UazApi.
@@ -307,23 +307,25 @@ export async function POST(req: Request) {
       return Response.json({ ok: true, mensagemId: gravada.mensagem_id, respondeu: false });
     }
 
-    // A resposta sai já; a IA trabalha depois, sem depender de a UazApi
-    // continuar esperando.
-    const conversaId = gravada.conversa_id;
-    await emSegundoPlano(
-      responderConversa(conversaId, token, telefone)
-        .then((resposta) => {
-          if (!resposta.respondeu) {
-            console.warn(`[assistente] conversa ${conversaId} sem resposta: ${resposta.motivo}`);
-          }
-        })
-        .catch((e) => {
-          // A mensagem do paciente já está salva; a falha fica no log.
-          console.error(`[assistente] conversa ${conversaId}:`, e instanceof Error ? e.message : e);
-        }),
-    );
+    /*
+     * A IA não responde aqui. O lead entra na fila do chip e o agendador
+     * responde depois de um minuto, um lead por vez por chip — resposta
+     * instantânea denuncia o robô, e trinta respostas simultâneas derrubam o
+     * chip. No principal nada entra na fila: ali quem responde é a equipe.
+     */
+    const funcao = await lerFuncao(token).catch(() => null);
+    if (funcao?.principal) {
+      return Response.json({ ok: true, mensagemId: gravada.mensagem_id, assistente: 'principal' });
+    }
 
-    return Response.json({ ok: true, mensagemId: gravada.mensagem_id, assistente: 'acionada' });
+    const chatid = texto(mensagem.chatid) || `${telefone}@s.whatsapp.net`;
+    try {
+      await enfileirar(token, chatid, gravada.conversa_id);
+    } catch (e) {
+      console.error('[fila-ia] não enfileirou:', e instanceof Error ? e.message : e);
+    }
+
+    return Response.json({ ok: true, mensagemId: gravada.mensagem_id, assistente: 'na fila' });
   } catch (e) {
     return falha(e);
   }

@@ -171,6 +171,37 @@ export async function configurarWebhook(token: string, url: string): Promise<unk
   });
 }
 
+/** Todas as instâncias do servidor (token de administrador). */
+export async function listarInstancias(): Promise<Instancia[]> {
+  return chamar<Instancia[]>('/instance/all', { metodo: 'GET', adminToken: await admin() });
+}
+
+export type ChatLead = {
+  wa_chatid?: string;
+  lead_status?: string;
+  lead_field01?: string;
+  lead_field02?: string;
+  lead_field03?: string;
+};
+
+/** Grava campos livres do contato na UazApi (lead_status, lead_fieldNN). */
+export async function editarLead(
+  token: string,
+  chatid: string,
+  campos: Partial<Omit<ChatLead, 'wa_chatid'>>,
+): Promise<unknown> {
+  return chamar('/chat/editLead', { corpo: { id: chatid, ...campos }, token });
+}
+
+/** Contatos com um `lead_status` exato. */
+export async function chatsComStatus(token: string, status: string): Promise<ChatLead[]> {
+  const resposta = await chamar<{ chats?: ChatLead[] } | ChatLead[]>('/chat/find', {
+    corpo: { lead_status: `=${status}`, wa_isGroup: false, limit: 100 },
+    token,
+  });
+  return Array.isArray(resposta) ? resposta : (resposta?.chats ?? []);
+}
+
 /** Marca a conversa como lida: o contato vê os dois tiques azuis. */
 export async function marcarComoLido(token: string, numero: string): Promise<unknown> {
   const jid = numero.includes('@') ? numero : `${numero}@s.whatsapp.net`;

@@ -189,11 +189,11 @@ async function principalDisponivel(
 /**
  * O ritmo de uma pessoa, não de um robô.
  *
- * Resposta em um segundo denuncia a automação e assusta o lead. A IA espera
- * um pouco, marca como vista, e digita por um tempo proporcional ao tamanho
- * do texto (com "digitando..." aparecendo para o contato). O total fica abaixo
- * de ~20 s porque o trabalho roda em `waitUntil`, que o Workers mantém vivo por
- * até 30 s depois da resposta ao webhook.
+ * Resposta em um segundo denuncia a automação e assusta o lead. O minuto de
+ * espera vem da fila (`fila-ia.ts`); aqui a IA abre a conversa, marca como
+ * vista e digita por um tempo proporcional ao tamanho do texto (com
+ * "digitando..." aparecendo para o contato). Cada resposta fica abaixo de ~20 s
+ * porque roda em `waitUntil`, que o Workers mantém vivo por até 30 s.
  */
 const esperar = (ms: number) => new Promise((pronto) => setTimeout(pronto, ms));
 const entre = (min: number, max: number) => min + Math.random() * (max - min);
@@ -261,9 +261,10 @@ export async function responderConversa(
     return { respondeu: false, motivo: 'lead já passado para o chip principal' };
   }
 
-  // Um instante para "pegar o celular", e o visto.
+  // O lead já esperou o minuto da fila; aqui é só o instante de abrir a
+  // conversa antes do visto.
   if (!opcoes?.simular) {
-    await esperar(entre(2000, 4500));
+    await esperar(entre(1000, 2500));
     await marcarComoLido(token, telefone).catch(() => {
       // Sem o visto a resposta ainda precisa sair.
     });

@@ -1,5 +1,7 @@
 import { anonimo, chaveWebhook, falha, segredo } from '@/lib/servidor/banco';
 import { lerFuncao } from '@/lib/servidor/funcao-chip';
+import { processarFilaIa } from '@/lib/servidor/fila-ia';
+import { emSegundoPlano } from '@/lib/servidor/segundo-plano';
 import { enviarTexto, listarMensagensDoDisparo } from '@/lib/servidor/uazapi';
 
 /**
@@ -147,6 +149,19 @@ export async function POST(req: Request) {
         console.error('[tarefas] conciliar campanha:', e instanceof Error ? e.message : e);
       }
     }
+
+    /*
+     * 4. A fila de respostas da IA. Roda depois da resposta ao agendador, em
+     * segundo plano: o pg_net desiste de esperar em poucos segundos, e cada
+     * resposta leva o tempo de uma pessoa digitando.
+     */
+    await emSegundoPlano(
+      processarFilaIa()
+        .then((feitos) => {
+          if (feitos.length) console.log('[fila-ia]', feitos.join(' | '));
+        })
+        .catch((e) => console.error('[fila-ia]', e instanceof Error ? e.message : e)),
+    );
 
     return Response.json({ ok: true, ...relatorio });
   } catch (e) {
