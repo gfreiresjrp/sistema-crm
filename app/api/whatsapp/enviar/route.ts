@@ -44,6 +44,25 @@ export async function POST(req: Request) {
 
     // O número da conversa, ou qualquer um conectado da clínica.
     let numeroId = conversa.numero_whatsapp_id;
+
+    /*
+     * Conversa sem chip gravado: vale o chip pelo qual o contato falou por
+     * último. O banco só grava o chip ao criar a conversa, então uma conversa
+     * aberta à mão e respondida depois pelo WhatsApp ficava sem ele — e a
+     * resposta saía por um número qualquer da rotação.
+     */
+    if (!numeroId) {
+      const { data: ultima } = await autorizacao.cliente
+        .from('mensagens')
+        .select('numero_whatsapp_id')
+        .eq('conversa_id', conversa.id)
+        .not('numero_whatsapp_id', 'is', null)
+        .order('criado_em', { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      numeroId = ultima?.numero_whatsapp_id ?? null;
+    }
+
     if (!numeroId) {
       const { data: disponivel } = await autorizacao.cliente
         .from('numeros_whatsapp')

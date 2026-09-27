@@ -263,6 +263,43 @@ export function PainelConversas({ busca }: { busca: string }) {
     [clinicaId], [pulso],
   );
 
+  /*
+   * Conversa sem chip gravado, mas com mensagem que chegou por um chip: o
+   * banco só grava o chip quando cria a conversa, então quem já existia antes
+   * de falar pelo WhatsApp ficava fora de qualquer filtro e sem selo. A tela
+   * completa com o chip da última mensagem — uma vez por conversa.
+   */
+  const semChipTentadas = useRef(new Set<string>());
+  useEffect(() => {
+    const semChip = (chipsDasConversas.dados ?? [])
+      .filter((c) => !c.numero_whatsapp_id && !semChipTentadas.current.has(c.id))
+      .map((c) => c.id);
+    if (semChip.length === 0) return;
+    semChip.forEach((id) => semChipTentadas.current.add(id));
+
+    void (async () => {
+      const { data } = await supabase
+        .from('mensagens')
+        .select('conversa_id, numero_whatsapp_id, criado_em')
+        .in('conversa_id', semChip)
+        .not('numero_whatsapp_id', 'is', null)
+        .order('criado_em', { ascending: false });
+      const ultimo = new Map<string, string>();
+      for (const m of data ?? []) {
+        if (m.numero_whatsapp_id && !ultimo.has(m.conversa_id)) {
+          ultimo.set(m.conversa_id, m.numero_whatsapp_id);
+        }
+      }
+      for (const [conversa, numero] of ultimo) {
+        await supabase
+          .from('conversas')
+          .update({ numero_whatsapp_id: numero })
+          .eq('id', conversa);
+      }
+      if (ultimo.size) setPulso((n) => n + 1);
+    })();
+  }, [chipsDasConversas.dados]);
+
   const chipDe = new Map(
     (chipsDasConversas.dados ?? []).map((c) => [c.id, c.numero_whatsapp_id]),
   );
