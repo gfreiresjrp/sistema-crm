@@ -1,6 +1,10 @@
 import { moeda } from '@/lib/dados/formato';
 import { anonimo, segredo } from './banco';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '@/lib/supabase/tipos-banco';
+import { horariosLivres, type HorarioLivre } from './agenda';
 import { lerFuncao } from './funcao-chip';
+import { clienteDoRobo } from './robo';
 import { gerarResposta, type Fala } from './openai';
 import { enviarTexto, estaConectado, marcarComoLido, statusInstancia } from './uazapi';
 
@@ -117,20 +121,65 @@ function montarPrompt(contexto: Contexto): string {
 const MARCA_PASSAGEM = '\u2063';
 
 /**
- * O que a IA precisa decidir além do texto, quando a clínica tem um chip
- * principal para receber os leads qualificados.
+ * As regras de agenda e o formato da resposta.
+ *
+ * A IA não consegue voltar a falar sozinha: ela só responde quando o lead
+ * escreve. "Vou verificar um horário e já te retorno" era uma promessa que
+ * nunca se cumpria — o lead ficava esperando. Por isso ela recebe os horários
+ * livres de verdade e oferece na mesma mensagem, ou, sem agenda, passa para a
+ * equipe.
  */
-const INSTRUCOES_QUALIFICACAO = `
+function instrucoesDeResposta(entrada: {
+  livres: HorarioLivre[] | null;
+  temPrincipal: boolean;
+}): string {
+  // Agrupa por dia: "terça-feira, 30/09: 09:00=2026-09-30T09:00, 10:00=…".
+  const porDia = new Map<string, string[]>();
+  for (const h of entrada.livres ?? []) {
+    const dia = new Intl.DateTimeFormat('pt-BR', {
+      timeZone: 'UTC',
+      weekday: 'long',
+      day: '2-digit',
+      month: '2-digit',
+    }).format(new Date(`${h.local.slice(0, 10)}T12:00:00Z`));
+    const lista = porDia.get(dia) ?? [];
+    lista.push(`${h.local.slice(11)}=${h.local}`);
+    porDia.set(dia, lista);
+  }
+  const agenda = entrada.livres?.length
+    ? [...porDia.entries()].map(([dia, horas]) => `- ${dia}: ${horas.join(', ')}`).join('\n')
+    : null;
+
+  const regrasAgenda = agenda
+    ? `AGENDA (horários livres para avaliação; o código depois do "=" é só para o campo "horario")
+${agenda}
+- Quando a pessoa quiser marcar, ofereça 2 ou 3 destes horários NA MESMA mensagem. Nunca ofereça horário fora desta lista.
+- Quando ela escolher um, preencha "horario" com o código dele.`
+    : `AGENDA
+- Você não tem a agenda agora. Quando a pessoa quiser marcar, diga que a equipe vai combinar o melhor horário com ela.`;
+
+  const regrasPassagem = entrada.temPrincipal
+    ? `- "qualificado": true quando a pessoa escolheu um horário da lista, ou pediu para falar com alguém da equipe, ou quer fechar e só falta combinar valores. Curiosidade vaga, "só estou olhando", resposta negativa ou pedido para parar de receber mensagens NÃO qualificam.
+Quando "qualificado" for true, a "mensagem" deve, curta e natural, confirmar o horário escolhido (se houver) e avisar que uma especialista da equipe vai continuar o atendimento em instantes pelo número oficial da clínica. Não cite valores nesse caso.`
+    : `- "qualificado": sempre false.
+Quando a pessoa escolher um horário, a "mensagem" deve confirmar que ficou reservado e que a equipe vai confirmar com ela.`;
+
+  return `
+
+NUNCA diga que vai verificar algo e retornar depois ("vou ver e já te retorno", "aguarde que já te respondo"). Você só consegue falar quando a pessoa escreve: tudo o que tiver para dizer, diga agora.
+
+${regrasAgenda}
 
 FORMATO DA RESPOSTA
 Responda sempre com um objeto JSON, sem nada fora dele:
-{"mensagem": "...", "qualificado": false, "interesse": ""}
+{"mensagem": "...", "qualificado": false, "interesse": "", "horario": ""}
 - "mensagem": o texto que vai para o WhatsApp do contato, seguindo todas as regras acima.
-- "qualificado": true só quando a pessoa demonstrou interesse real em um procedimento E topou dar o próximo passo — agendar uma avaliação, saber valores ou condições para fechar, ou pediu para falar com alguém da equipe. Curiosidade vaga, "só estou olhando", resposta negativa ou pedido para parar de receber mensagens NÃO qualificam.
+${regrasPassagem}
 - "interesse": o procedimento ou assunto que a pessoa quer, em poucas palavras (ex.: "harmonização facial"). Vazio se ainda não souber.
-Quando "qualificado" for true, a "mensagem" deve só avisar, curta e natural, que uma especialista da equipe vai continuar o atendimento em instantes pelo número oficial da clínica. Nesse caso não marque horário nem cite valores.`;
+- "horario": o código do horário que a pessoa escolheu nesta conversa, ou vazio.`;
+}
 
-type Decisao = { mensagem: string; qualificado: boolean; interesse: string };
+type Decisao = { mensagem: string; qualificado: boolean; interesse: string; horario: string };
 
 function lerDecisao(bruto: string): Decisao {
   try {
@@ -141,12 +190,13 @@ function lerDecisao(bruto: string): Decisao {
         mensagem,
         qualificado: dados.qualificado === true,
         interesse: typeof dados.interesse === 'string' ? dados.interesse.trim() : '',
+        horario: typeof dados.horario === 'string' ? dados.horario.trim() : '',
       };
     }
   } catch {
     // Veio texto solto em vez de JSON: ainda é uma resposta válida.
   }
-  return { mensagem: bruto.trim(), qualificado: false, interesse: '' };
+  return { mensagem: bruto.trim(), qualificado: false, interesse: '', horario: '' };
 }
 
 function primeiroNome(nome: string | undefined): string {
@@ -156,16 +206,62 @@ function primeiroNome(nome: string | undefined): string {
   return primeiro.charAt(0).toUpperCase() + primeiro.slice(1).toLowerCase();
 }
 
-function mensagemDaPassagem(contexto: Contexto, interesse: string): string {
+function mensagemDaPassagem(
+  contexto: Contexto,
+  interesse: string,
+  horario: HorarioLivre | null,
+): string {
   const nome = primeiroNome(contexto.paciente?.nome);
   const clinica = contexto.clinica ?? 'clínica';
   const assistente = contexto.config?.nome_assistente ?? 'nossa assistente';
   const assunto = interesse ? `, e vi que você tem interesse em ${interesse}` : '';
+  const quando = horario ? ` Seu horário de ${horario.rotulo} já está separado.` : '';
   return (
     `Oi${nome ? `, ${nome}` : ''}! Aqui é a equipe da ${clinica} 💛 ` +
-    `A ${assistente} me passou seu contato${assunto}. ` +
+    `A ${assistente} me passou seu contato${assunto}.${quando} ` +
     `Vou continuar seu atendimento por aqui, tudo bem?${MARCA_PASSAGEM}`
   );
+}
+
+/** Separa o horário escolhido pelo lead, aguardando a equipe confirmar. */
+async function reservarHorario(
+  robo: SupabaseClient<Database>,
+  conversaId: string,
+  horario: HorarioLivre,
+  interesse: string,
+) {
+  const { data: conversa } = await robo
+    .from('conversas')
+    .select('clinica_id, unidade_id, paciente_id')
+    .eq('id', conversaId)
+    .maybeSingle();
+  if (!conversa) return;
+
+  let unidadeId = conversa.unidade_id;
+  if (!unidadeId) {
+    const { data: unidade } = await robo
+      .from('unidades')
+      .select('id')
+      .eq('clinica_id', conversa.clinica_id)
+      .order('criado_em')
+      .limit(1)
+      .maybeSingle();
+    unidadeId = unidade?.id ?? null;
+  }
+  if (!unidadeId) return;
+
+  const { error } = await robo.from('agendamentos').insert({
+    clinica_id: conversa.clinica_id,
+    unidade_id: unidadeId,
+    paciente_id: conversa.paciente_id,
+    inicio: horario.inicio.toISOString(),
+    fim: new Date(horario.inicio.getTime() + 60 * 60_000).toISOString(),
+    status: 'aguardando_confirmacao',
+    origem: 'whatsapp',
+    agendado_pela_ia: true,
+    observacoes: `Horário escolhido pelo lead com a IA${interesse ? ` (${interesse})` : ''}. Falta a equipe confirmar.`,
+  });
+  if (error) throw new Error(error.message);
 }
 
 /** Credencial do chip principal, se ele existir e estiver no ar. */
@@ -223,7 +319,11 @@ export async function responderConversa(
   const servidor = anonimo();
 
   // No chip principal quem atende é a equipe: ali só chega lead qualificado.
-  const funcao = await lerFuncao(token).catch(() => ({ principal: false, principalId: null }));
+  const funcao = await lerFuncao(token).catch(() => ({
+    principal: false,
+    principalId: null,
+    clinicaId: null,
+  }));
   if (funcao.principal) return { respondeu: false, motivo: 'chip principal é atendido pela equipe' };
 
   const { data, error } = await servidor.rpc('wa_contexto_assistente', {
@@ -273,28 +373,38 @@ export async function responderConversa(
   const prompt = montarPrompt(contexto);
   if (!prompt.trim()) return { respondeu: false, motivo: 'prompt vazio' };
 
-  // Só pede a decisão de qualificar quando há para onde mandar o lead.
-  const qualifica = Boolean(funcao.principalId);
+  // A agenda de verdade, pelo login da IA na clínica (ver robo.ts).
+  const robo = funcao.clinicaId ? await clienteDoRobo(funcao.clinicaId).catch(() => null) : null;
+  const livres =
+    robo && funcao.clinicaId
+      ? await horariosLivres(robo, {
+          clinicaId: funcao.clinicaId,
+          fuso: contexto.fuso ?? 'America/Sao_Paulo',
+          dias: 7,
+          limite: 36,
+        }).catch(() => null)
+      : null;
 
+  const temPrincipal = Boolean(funcao.principalId);
   const falas: Fala[] = [
-    { papel: 'system', texto: qualifica ? prompt + INSTRUCOES_QUALIFICACAO : prompt },
+    { papel: 'system', texto: prompt + instrucoesDeResposta({ livres, temPrincipal }) },
     ...contexto.mensagens.map<Fala>((m) => ({
       papel: m.autor === 'paciente' ? 'user' : 'assistant',
       texto: m.conteudo,
     })),
   ];
 
-  const bruto = await gerarResposta({ modelo: c.modelo_ia, falas, json: qualifica });
-  const decisao = qualifica
-    ? lerDecisao(bruto)
-    : { mensagem: bruto, qualificado: false, interesse: '' };
+  const decisao = lerDecisao(await gerarResposta({ modelo: c.modelo_ia, falas, json: true }));
+  // Só vale horário que está de fato livre — a IA não inventa agenda.
+  const escolhido = (livres ?? []).find((h) => h.local === decisao.horario) ?? null;
 
   // A passagem só acontece se o principal estiver no ar; senão a IA segue
   // atendendo, e o aviso de "a especialista vai te chamar" não pode sair.
-  const principal = decisao.qualificado ? await principalDisponivel(funcao.principalId) : null;
+  const principal =
+    temPrincipal && decisao.qualificado ? await principalDisponivel(funcao.principalId) : null;
   const texto =
-    decisao.qualificado && !principal
-      ? (lerDecisao(
+    decisao.qualificado && temPrincipal && !principal
+      ? lerDecisao(
           await gerarResposta({
             modelo: c.modelo_ia,
             falas: [
@@ -307,14 +417,14 @@ export async function responderConversa(
             ],
             json: true,
           }),
-        ).mensagem)
+        ).mensagem
       : decisao.mensagem;
 
   // Simulação (rota de diagnóstico): mostra o que a IA faria, sem enviar.
   if (opcoes?.simular) {
     return {
       respondeu: true,
-      texto: `${texto}${decisao.qualificado ? ` [qualificado: ${decisao.interesse}; principal ${principal ? 'no ar' : 'fora do ar'}]` : ''}`,
+      texto: `${texto} [agenda: ${livres ? `${livres.length} horários livres` : 'sem acesso'}${escolhido ? `; escolheu ${escolhido.rotulo}` : ''}${decisao.qualificado ? `; qualificado: ${decisao.interesse}; principal ${principal ? 'no ar' : 'fora do ar'}` : ''}]`,
       passouParaPrincipal: false,
     };
   }
@@ -329,13 +439,24 @@ export async function responderConversa(
     p_id_externo: idExterno,
   });
 
+  /*
+   * Horário escolhido: fica separado na agenda como "aguardando confirmação".
+   * Segura a vaga — a IA não oferece o mesmo horário a outro lead — e a
+   * atendente confirma ou troca pela conversa (a escuta do principal acerta).
+   */
+  if (escolhido && robo && (principal || !temPrincipal)) {
+    await reservarHorario(robo, conversaId, escolhido, decisao.interesse).catch((e) =>
+      console.error('[assistente] reserva:', e instanceof Error ? e.message : e),
+    );
+  }
+
   if (!principal) return { respondeu: true, texto, passouParaPrincipal: false };
 
   /*
    * A passagem: o chip principal chama o lead. Registrar a mensagem por ele
    * leva a conversa para o principal, que é onde a equipe está olhando.
    */
-  const abertura = mensagemDaPassagem(contexto, decisao.interesse);
+  const abertura = mensagemDaPassagem(contexto, decisao.interesse, escolhido);
   // Quem assume é uma pessoa: um respiro antes, e digitando.
   // O teto de 6 s na digitação mantém a passagem inteira dentro dos 30 s.
   await esperar(entre(1500, 2500));

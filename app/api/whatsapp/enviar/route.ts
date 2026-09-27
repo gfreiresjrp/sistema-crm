@@ -7,6 +7,8 @@ import {
   segredo,
 } from '@/lib/servidor/banco';
 import { enviarTexto } from '@/lib/servidor/uazapi';
+import { escutarAgendamento } from '@/lib/servidor/escuta-agenda';
+import { emSegundoPlano } from '@/lib/servidor/segundo-plano';
 
 /**
  * Envia uma mensagem de uma conversa pelo WhatsApp e grava o registro.
@@ -119,6 +121,20 @@ export async function POST(req: Request) {
         .from('conversas')
         .update({ numero_whatsapp_id: numeroId })
         .eq('id', conversa.id);
+    }
+
+    // Mensagem pelo principal: a IA escuta e agenda se a atendente fechou horário.
+    const { data: chip } = await autorizacao.cliente
+      .from('numeros_whatsapp')
+      .select('peso_rotacao')
+      .eq('id', numeroId)
+      .maybeSingle();
+    if (chip?.peso_rotacao === 0) {
+      await emSegundoPlano(
+        escutarAgendamento(autorizacao.cliente, conversa.id).catch((e) =>
+          console.error('[escuta]', e instanceof Error ? e.message : e),
+        ),
+      );
     }
 
     return Response.json({ ok: true, mensagemId: registro.id, idExterno });

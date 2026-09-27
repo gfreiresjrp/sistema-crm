@@ -1,5 +1,6 @@
 import { anonimo, erro, exigirUsuario, falha, numeroDoUsuario, segredo } from '@/lib/servidor/banco';
 import { gravarFuncao } from '@/lib/servidor/funcao-chip';
+import { ativarRobo } from '@/lib/servidor/robo';
 
 /**
  * Define qual chip da clínica é o principal — o que recebe os leads já
@@ -67,13 +68,20 @@ export async function POST(req: Request) {
         continue;
       }
       try {
-        await gravarFuncao(token, { principal: n.id === numeroId, principalId: numeroId ?? null });
+        await gravarFuncao(token, {
+          principal: n.id === numeroId,
+          principalId: numeroId ?? null,
+          clinicaId,
+        });
       } catch {
         semInstancia.push(n.id);
       }
     }
 
-    return Response.json({ ok: true, principal: numeroId ?? null, semInstancia });
+    // A IA precisa do próprio login para ler a agenda e agendar pelo principal.
+    const robo = await ativarRobo(autorizacao.cliente, clinicaId);
+
+    return Response.json({ ok: true, principal: numeroId ?? null, semInstancia, robo });
   } catch (e) {
     return falha(e);
   }

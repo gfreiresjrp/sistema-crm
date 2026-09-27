@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/tipos-banco';
+import { localParaUtc as localParaUtcPartes } from './agenda';
 import { gerarResposta } from './openai';
 
 /**
@@ -9,8 +10,8 @@ import { gerarResposta } from './openai';
  * a conversa fecha um horário ("fechado, terça às 14h"), é ela quem põe na
  * agenda — a atendente não precisa sair do WhatsApp para cadastrar.
  *
- * Roda com a sessão de quem está no sistema (RLS valendo): o servidor não tem
- * chave-mestra para gravar agendamento sozinho.
+ * Roda com um cliente que respeita o RLS: o login da IA (webhook) ou a sessão
+ * de quem enviou pelo sistema (rota de envio).
  */
 
 type Cliente = SupabaseClient<Database>;
@@ -24,20 +25,7 @@ function localParaUtc(local: string, fuso: string): Date {
   const [data, hora] = local.split('T');
   const [a, m, d] = data.split('-').map(Number);
   const [h, min] = (hora ?? '00:00').split(':').map(Number);
-  const comoUtc = Date.UTC(a, m - 1, d, h, min);
-  // Quanto o fuso está deslocado do UTC naquele instante.
-  const partes = new Intl.DateTimeFormat('en-US', {
-    timeZone: fuso,
-    hourCycle: 'h23',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-    hour: '2-digit',
-    minute: '2-digit',
-  }).formatToParts(new Date(comoUtc));
-  const v = (t: string) => Number(partes.find((p) => p.type === t)?.value);
-  const vistoNoFuso = Date.UTC(v('year'), v('month') - 1, v('day'), v('hour'), v('minute'));
-  return new Date(comoUtc - (vistoNoFuso - comoUtc));
+  return localParaUtcPartes(a, m, d, h, min, fuso);
 }
 
 function agoraNoFuso(fuso: string): string {

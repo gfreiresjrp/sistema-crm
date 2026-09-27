@@ -4,6 +4,26 @@ import { baixarImagemComoDataUrl } from '@/lib/servidor/imagem';
 import { variavel } from '@/lib/servidor/ambiente';
 import { enfileirar } from '@/lib/servidor/fila-ia';
 import { lerFuncao } from '@/lib/servidor/funcao-chip';
+import { escutarAgendamento } from '@/lib/servidor/escuta-agenda';
+import { clienteDoRobo } from '@/lib/servidor/robo';
+import { emSegundoPlano } from '@/lib/servidor/segundo-plano';
+
+/**
+ * No chip principal a IA não responde, mas escuta: se a atendente fechou um
+ * horário, ela agenda com o próprio login (`robo.ts`). Em segundo plano, para
+ * não segurar a resposta ao webhook.
+ */
+async function escutarNoPrincipal(clinicaId: string | null, conversaId: string) {
+  if (!clinicaId) return;
+  await emSegundoPlano(
+    (async () => {
+      const robo = await clienteDoRobo(clinicaId);
+      if (!robo) return;
+      const resultado = await escutarAgendamento(robo, conversaId);
+      if (resultado.acao !== 'nenhuma') console.log('[escuta]', resultado.acao, resultado.inicio);
+    })().catch((e) => console.error('[escuta]', e instanceof Error ? e.message : e)),
+  );
+}
 
 /**
  * Recebe os eventos da UazApi.
@@ -293,7 +313,22 @@ export async function POST(req: Request) {
 
     // A assistente só entra em mensagem nova do paciente. Evento reentregue já
     // foi respondido; mensagem nossa não pede resposta.
-    if (mensagem.fromMe || gravada.duplicada) {
+    if (gravada.duplicada) {
+      return Response.json({ ok: true, mensagemId: gravada.mensagem_id, respondeu: false });
+    }
+
+    if (mensagem.fromMe) {
+      // A atendente escrevendo pelo celular no principal: a IA escuta para
+      // agendar. Mensagem nossa em chip de disparo não pede nada.
+      const { data: credencialDoChip } = await servidor.rpc('wa_credencial_por_instancia', {
+        p_segredo: chave,
+        p_instancia: instancia,
+      });
+      const tokenDoChip = credencialDoChip?.[0]?.token;
+      const funcaoDoChip = tokenDoChip ? await lerFuncao(tokenDoChip).catch(() => null) : null;
+      if (funcaoDoChip?.principal) {
+        await escutarNoPrincipal(funcaoDoChip.clinicaId, gravada.conversa_id);
+      }
       return Response.json({ ok: true, mensagemId: gravada.mensagem_id, respondeu: false });
     }
 
@@ -315,7 +350,8 @@ export async function POST(req: Request) {
      */
     const funcao = await lerFuncao(token).catch(() => null);
     if (funcao?.principal) {
-      return Response.json({ ok: true, mensagemId: gravada.mensagem_id, assistente: 'principal' });
+      await escutarNoPrincipal(funcao.clinicaId, gravada.conversa_id);
+      return Response.json({ ok: true, mensagemId: gravada.mensagem_id, assistente: 'escutando' });
     }
 
     const chatid = texto(mensagem.chatid) || `${telefone}@s.whatsapp.net`;

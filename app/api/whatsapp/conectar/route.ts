@@ -97,6 +97,7 @@ export async function POST(req: Request) {
       await gravarFuncao(token, {
         principal: principal?.id === numeroId,
         principalId: principal?.id ?? null,
+        clinicaId: numero.clinica_id,
       });
     } catch (e) {
       console.warn('[whatsapp] papel do chip não gravado:', e instanceof Error ? e.message : e);
