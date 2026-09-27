@@ -269,11 +269,11 @@ export async function criarDisparo(
   });
 }
 
-/** Pausa ou retoma uma fila de disparo inteira. */
+/** Pausa, retoma ou apaga (com o que ainda não saiu) uma fila de disparo. */
 export async function controlarDisparo(
   token: string,
   pastaId: string,
-  acao: 'stop' | 'continue',
+  acao: 'stop' | 'continue' | 'delete',
 ): Promise<unknown> {
   return chamar('/sender/edit', { corpo: { folder_id: pastaId, action: acao }, token });
 }

@@ -13,6 +13,7 @@ import {
   Send,
   Smartphone,
   Sparkles,
+  Trash2,
   X,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/cliente';
@@ -175,6 +176,20 @@ export function PainelCampanhas() {
   );
   const filtroDaCampanha = new Map((ritmos.dados ?? []).map((r) => [r.id, r.filtro_publico]));
   const [editandoIa, setEditandoIa] = useState<DesempenhoCampanha | null>(null);
+  const [excluindo, setExcluindo] = useState<DesempenhoCampanha | null>(null);
+
+  async function excluir() {
+    if (!excluindo) return;
+    await executar(
+      () =>
+        whatsapp.controlarCampanha(excluindo.campanha_id, 'excluir').then(() => ({ error: null })),
+      `"${excluindo.campanha}" excluída`,
+      () => {
+        setExcluindo(null);
+        setPulso((n) => n + 1);
+      },
+    );
+  }
   const ritmoDaCampanha = new Map(
     (ritmos.dados ?? []).map((r) => [r.id, r.envios_por_hora ?? 240]),
   );
@@ -422,20 +437,50 @@ export function PainelCampanhas() {
                   <span>{numero(linha.responderam)}</span>
                   <span>{numero(linha.agendaram)}</span>
                   <span>{linha.receita ? moeda(linha.receita) : '—'}</span>
-                  <ControleCampanha
-                    campanha={linha}
-                    andamento={andamento.get(linha.campanha_id)}
-                    ocupado={ocupado}
-                    podeIniciar={conectados > 0}
-                    aoIniciar={() => iniciar(linha)}
-                    aoControlar={(acao) => controlar(linha, acao)}
-                  />
+                  <div className="celula-status">
+                    <ControleCampanha
+                      campanha={linha}
+                      andamento={andamento.get(linha.campanha_id)}
+                      ocupado={ocupado}
+                      podeIniciar={conectados > 0}
+                      aoIniciar={() => iniciar(linha)}
+                      aoControlar={(acao) => controlar(linha, acao)}
+                    />
+                    <button
+                      className="icone-perigo"
+                      disabled={ocupado}
+                      onClick={() => setExcluindo(linha)}
+                      aria-label={`Excluir ${linha.campanha}`}
+                      title="Excluir campanha"
+                    >
+                      <Trash2 size={15} />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
           )}
         </Conteudo>
       </article>
+
+      <Modal
+        titulo={`Excluir "${excluindo?.campanha ?? 'campanha'}"?`}
+        descricao={
+          excluindo?.status === 'em_andamento' || excluindo?.status === 'pausada'
+            ? 'A fila é cancelada: quem ainda não recebeu não vai receber.'
+            : 'A campanha sai da lista e dos relatórios.'
+        }
+        aberto={Boolean(excluindo)}
+        aoFechar={() => setExcluindo(null)}
+        aoConfirmar={excluir}
+        rotuloConfirmar="Excluir"
+        salvando={ocupado}
+      >
+        <p>
+          As conversas e os agendamentos que ela gerou continuam no sistema — são histórico dos
+          contatos. Não dá para desfazer.
+        </p>
+      </Modal>
 
       {editandoIa && (
         <ModalIaCampanha
