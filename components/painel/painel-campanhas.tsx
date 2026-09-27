@@ -1,11 +1,12 @@
 'use client';
 
 import { useState } from 'react';
-import { Megaphone, Plus, Send, Smartphone } from 'lucide-react';
+import { FileText, ImageIcon, Megaphone, Paperclip, Plus, Send, Smartphone, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase/cliente';
 import { useConsulta } from '@/lib/dados/consulta';
 import { useClinica } from '@/lib/dados/sessao';
 import { whatsapp } from '@/lib/dados/api';
+import { subirMidia, TAMANHO_MAXIMO } from '@/lib/dados/midia';
 import {
   moeda,
   numero,
@@ -14,7 +15,7 @@ import {
   ROTULO_STATUS_CHIP,
   telefoneVisivel,
 } from '@/lib/dados/formato';
-import { Cabecalho, Campo, Conteudo, EstadoVazio, Modal, useAcao } from './base';
+import { Cabecalho, Campo, Conteudo, EstadoVazio, Modal, useAcao, useAviso } from './base';
 import { contagem, useListasLeads } from './painel-listas';
 
 export type DesempenhoCampanha = {
@@ -93,7 +94,23 @@ export function PainelCampanhas() {
     [clinicaId], [pulso],
   );
 
-  const conectados = (chips.dados ?? []).filter((c) => c.status === 'conectado').length;
+  // O principal recebe os leads qualificados e não dispara campanha.
+  const principais = useConsulta<Array<{ id: string }>>(
+    clinicaId
+      ? () =>
+          supabase
+            .from('numeros_whatsapp')
+            .select('id')
+            .eq('clinica_id', clinicaId)
+            .eq('peso_rotacao', 0)
+      : null,
+    [clinicaId], [pulso],
+  );
+  const principalIds = new Set((principais.dados ?? []).map((p) => p.id));
+
+  const conectados = (chips.dados ?? []).filter(
+    (c) => c.status === 'conectado' && !principalIds.has(c.numero_id),
+  ).length;
 
   const vinculos = useConsulta<VinculoNumero[]>(
     clinicaId
@@ -266,9 +283,17 @@ export function PainelCampanhas() {
                   >
                     <option value="">Rotação automática</option>
                     {(chips.dados ?? []).map((chip) => (
-                      <option key={chip.numero_id} value={chip.numero_id}>
+                      <option
+                        key={chip.numero_id}
+                        value={chip.numero_id}
+                        disabled={principalIds.has(chip.numero_id)}
+                      >
                         {chip.apelido}
-                        {chip.status === 'conectado' ? '' : ` (${ROTULO_STATUS_CHIP[chip.status] ?? chip.status})`}
+                        {principalIds.has(chip.numero_id)
+                          ? ' (principal — não dispara)'
+                          : chip.status === 'conectado'
+                            ? ''
+                            : ` (${ROTULO_STATUS_CHIP[chip.status] ?? chip.status})`}
                       </option>
                     ))}
                   </select>
@@ -330,7 +355,7 @@ export function PainelCampanhas() {
 
       <ModalCampanha
         aberto={modalAberto}
-        chips={chips.dados ?? []}
+        chips={(chips.dados ?? []).filter((c) => !principalIds.has(c.numero_id))}
         aoFechar={() => setModalAberto(false)}
         aoCriar={() => setPulso((n) => n + 1)}
       />
@@ -399,8 +424,24 @@ function ModalCampanha({
 }) {
   const { clinicaId, unidadeId, membroId } = useClinica();
   const { executar, ocupado } = useAcao();
+  const { alertar } = useAviso();
 
   const [nome, setNome] = useState('');
+  // Imagem ou documento que vai junto; a mensagem vira a legenda dele.
+  const [arquivo, setArquivo] = useState<File | null>(null);
+
+  function escolherArquivo(escolhido: File | null) {
+    if (!escolhido) return setArquivo(null);
+    if (escolhido.size > TAMANHO_MAXIMO) {
+      alertar('O arquivo precisa ter até 25 MB.');
+      return;
+    }
+    if (escolhido.type.startsWith('video/') || escolhido.type.startsWith('audio/')) {
+      alertar('A campanha aceita imagem ou documento.');
+      return;
+    }
+    setArquivo(escolhido);
+  }
   const [objetivoChave, setObjetivoChave] = useState('reativar');
   const [objetivoLivre, setObjetivoLivre] = useState('');
   const [modelo, setModelo] = useState(OBJETIVOS[0].mensagem);
@@ -426,8 +467,29 @@ function ModalCampanha({
 
   async function salvar() {
     if (!nome.trim()) return;
+    if (!modelo.trim() && !arquivo) {
+      alertar('Escreva a mensagem ou anexe uma imagem ou documento.');
+      return;
+    }
     await executar(
       async () => {
+        let anexo: {
+          caminho: string;
+          tipo: 'imagem' | 'documento';
+          nome: string;
+          mimetype: string | null;
+        } | null = null;
+        if (arquivo) {
+          const { caminho, erro } = await subirMidia(clinicaId, arquivo, arquivo.name);
+          if (erro) return { error: { message: erro } };
+          anexo = {
+            caminho,
+            tipo: arquivo.type.startsWith('image/') ? 'imagem' : 'documento',
+            nome: arquivo.name,
+            mimetype: arquivo.type || null,
+          };
+        }
+
         const { data: criada, error } = await supabase
           .from('campanhas')
           .insert({
@@ -436,7 +498,11 @@ function ModalCampanha({
             nome: nome.trim(),
             objetivo: objetivo.trim() || null,
             modelo_mensagem: modelo,
-            filtro_publico: listaId ? { lista_id: listaId } : {},
+            // O anexo mora aqui porque a tabela não tem coluna para ele.
+            filtro_publico: {
+              ...(listaId ? { lista_id: listaId } : {}),
+              ...(anexo ? { anexo } : {}),
+            },
             envios_por_hora: porHora,
             criado_por: membroId,
           })
@@ -456,6 +522,7 @@ function ModalCampanha({
         setObjetivoLivre('');
         setNumeroId('');
         setPorHora(240);
+        setArquivo(null);
         setListaId('');
         setMensagemTocada(false);
         aoCriar();
@@ -512,6 +579,35 @@ function ModalCampanha({
           }}
           rows={4}
         />
+      </Campo>
+      <Campo
+        rotulo="Imagem ou documento (opcional)"
+        dica="Vai junto com cada mensagem; o texto acima vira a legenda. Até 25 MB."
+      >
+        {arquivo ? (
+          <div className="anexo-campanha">
+            {arquivo.type.startsWith('image/') ? <ImageIcon size={16} /> : <FileText size={16} />}
+            <span>{arquivo.name}</span>
+            <button
+              type="button"
+              className="botao-icone"
+              onClick={() => setArquivo(null)}
+              aria-label="Remover anexo"
+            >
+              <X size={14} />
+            </button>
+          </div>
+        ) : (
+          <label className="anexo-campanha anexo-vazio">
+            <Paperclip size={16} />
+            <span>Escolher arquivo</span>
+            <input
+              type="file"
+              accept="image/*,application/pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.txt"
+              onChange={(e) => escolherArquivo(e.target.files?.[0] ?? null)}
+            />
+          </label>
+        )}
       </Campo>
       <Campo rotulo="Público" dica="Só recebem contatos que aceitaram receber mensagens.">
         <select value={listaId} onChange={(e) => setListaId(e.target.value)}>

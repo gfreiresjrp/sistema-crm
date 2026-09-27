@@ -12,6 +12,7 @@ import {
   RefreshCw,
   Smartphone,
   Sparkles,
+  Star,
   Trash2,
   Unplug,
   UserCog,
@@ -775,6 +776,24 @@ function Numeros() {
     );
   }
 
+  /**
+   * O chip principal recebe os leads que a IA qualificou nos chips de
+   * disparo; nele a equipe atende e ele não entra na rotação de campanhas.
+   * Só existe um por clínica — escolher outro tira a função do anterior.
+   */
+  async function definirPrincipal(numero: NumeroWhatsapp | null) {
+    await executar(
+      () =>
+        whatsapp
+          .definirPrincipal({ numeroId: numero?.id ?? null, clinicaId })
+          .then(() => ({ error: null })),
+      numero
+        ? `${numero.apelido} agora é o chip principal — recebe os leads qualificados`
+        : 'Nenhum chip principal: a IA atende até o fim em cada chip',
+      () => setPulso((n) => n + 1),
+    );
+  }
+
   async function desconectar(numero: NumeroWhatsapp) {
     await executar(
       () => whatsapp.desconectar(numero.id).then(() => ({ error: null })),
@@ -800,7 +819,10 @@ function Numeros() {
       <div className="panel-title">
         <div>
           <h2>Números de WhatsApp</h2>
-          <p>Conecte o aparelho lendo o QR Code — é o que liga o sistema ao WhatsApp</p>
+          <p>
+            Os chips de disparo mandam as campanhas e a IA qualifica quem responde; o principal
+            recebe só os leads qualificados, e ali quem atende é a equipe.
+          </p>
         </div>
         <button className="primary-btn" onClick={() => setAberto(true)}>
           <Plus size={15} /> Novo
@@ -834,9 +856,15 @@ function Numeros() {
             </header>
             {itens.map((item) => {
               const conectado = item.status === 'conectado';
+              const principal = item.peso_rotacao === 0;
               return (
                 <div key={item.id}>
-                  <span>{item.apelido}</span>
+                  <span className="apelido-chip">
+                    {item.apelido}
+                    <em className={principal ? 'funcao-principal' : 'funcao-disparo'}>
+                      {principal ? 'Principal' : 'Disparo'}
+                    </em>
+                  </span>
                   <span>{item.numero ? telefoneVisivel(item.numero) : '—'}</span>
                   <span className={`status ${conectado ? 'confirmed' : 'waiting'}`}>
                     <i />
@@ -845,6 +873,18 @@ function Numeros() {
                   <span>{numero(item.enviados_hoje)}</span>
                   <span>{numero(item.limite_diario)}</span>
                   <div className="acoes-evento">
+                    <button
+                      className="secondary-btn"
+                      disabled={ocupado}
+                      onClick={() => definirPrincipal(principal ? null : item)}
+                      title={
+                        principal
+                          ? 'Volta a ser um chip de disparo'
+                          : 'Passa a receber os leads qualificados pela IA'
+                      }
+                    >
+                      <Star size={14} /> {principal ? 'Tirar principal' : 'Tornar principal'}
+                    </button>
                     {conectado ? (
                       <button
                         className="secondary-btn"

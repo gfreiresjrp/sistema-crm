@@ -1,4 +1,5 @@
 import { anonimo, chaveWebhook, falha, segredo } from '@/lib/servidor/banco';
+import { lerFuncao } from '@/lib/servidor/funcao-chip';
 import { enviarTexto, listarMensagensDoDisparo } from '@/lib/servidor/uazapi';
 
 /**
@@ -70,13 +71,23 @@ export async function POST(req: Request) {
      * todas as linhas fez o mesmo contato receber a mensagem três vezes, de
      * três números diferentes.
      */
-    const vistos = new Set<string>();
-    const unicos = (fila ?? []).filter((item) => {
+    // O chip principal só fala com lead qualificado: follow-up de campanha sai
+    // por um chip de disparo sempre que houver um na fila.
+    const principais = new Set<string>();
+    for (const token of new Set((fila ?? []).map((item) => item.token))) {
+      const funcao = await lerFuncao(token).catch(() => null);
+      if (funcao?.principal) principais.add(token);
+    }
+
+    const escolhido = new Map<string, NonNullable<typeof fila>[number]>();
+    for (const item of fila ?? []) {
       const chaveItem = `${item.tipo}:${item.id}`;
-      if (vistos.has(chaveItem)) return false;
-      vistos.add(chaveItem);
-      return true;
-    });
+      const atual = escolhido.get(chaveItem);
+      if (!atual || (principais.has(atual.token) && !principais.has(item.token))) {
+        escolhido.set(chaveItem, item);
+      }
+    }
+    const unicos = [...escolhido.values()];
 
     for (const item of unicos) {
       try {

@@ -1,7 +1,8 @@
 import { moeda } from '@/lib/dados/formato';
 import { anonimo, segredo } from './banco';
+import { lerFuncao } from './funcao-chip';
 import { gerarResposta, type Fala } from './openai';
-import { enviarTexto } from './uazapi';
+import { enviarTexto, estaConectado, statusInstancia } from './uazapi';
 
 /**
  * A assistente que responde os pacientes no WhatsApp.
@@ -129,8 +130,86 @@ function montarPrompt(contexto: Contexto): string {
   );
 }
 
+/**
+ * Marca invisível no fim da mensagem com que o chip principal assume o lead.
+ * É por ela que a IA do chip de disparo sabe que aquela pessoa já foi passada
+ * adiante e não deve mais responder — nem se o lead voltar a escrever na
+ * conversa antiga.
+ */
+const MARCA_PASSAGEM = '\u2063';
+
+/**
+ * O que a IA precisa decidir além do texto, quando a clínica tem um chip
+ * principal para receber os leads qualificados.
+ */
+const INSTRUCOES_QUALIFICACAO = `
+
+FORMATO DA RESPOSTA
+Responda sempre com um objeto JSON, sem nada fora dele:
+{"mensagem": "...", "qualificado": false, "interesse": ""}
+- "mensagem": o texto que vai para o WhatsApp do contato, seguindo todas as regras acima.
+- "qualificado": true só quando a pessoa demonstrou interesse real em um procedimento E topou dar o próximo passo — agendar uma avaliação, saber valores ou condições para fechar, ou pediu para falar com alguém da equipe. Curiosidade vaga, "só estou olhando", resposta negativa ou pedido para parar de receber mensagens NÃO qualificam.
+- "interesse": o procedimento ou assunto que a pessoa quer, em poucas palavras (ex.: "harmonização facial"). Vazio se ainda não souber.
+Quando "qualificado" for true, a "mensagem" deve só avisar, curta e natural, que uma especialista da equipe vai continuar o atendimento em instantes pelo número oficial da clínica. Nesse caso não marque horário nem cite valores.`;
+
+type Decisao = { mensagem: string; qualificado: boolean; interesse: string };
+
+function lerDecisao(bruto: string): Decisao {
+  try {
+    const dados = JSON.parse(bruto) as Partial<Decisao>;
+    const mensagem = typeof dados.mensagem === 'string' ? dados.mensagem.trim() : '';
+    if (mensagem) {
+      return {
+        mensagem,
+        qualificado: dados.qualificado === true,
+        interesse: typeof dados.interesse === 'string' ? dados.interesse.trim() : '',
+      };
+    }
+  } catch {
+    // Veio texto solto em vez de JSON: ainda é uma resposta válida.
+  }
+  return { mensagem: bruto.trim(), qualificado: false, interesse: '' };
+}
+
+function primeiroNome(nome: string | undefined): string {
+  const limpo = (nome ?? '').trim();
+  if (!limpo || /^[\d\s()+-]+$/.test(limpo)) return '';
+  const primeiro = limpo.split(/\s+/)[0];
+  return primeiro.charAt(0).toUpperCase() + primeiro.slice(1).toLowerCase();
+}
+
+function mensagemDaPassagem(contexto: Contexto, interesse: string): string {
+  const nome = primeiroNome(contexto.paciente?.nome);
+  const clinica = contexto.clinica ?? 'clínica';
+  const assistente = contexto.config?.nome_assistente ?? 'nossa assistente';
+  const assunto = interesse ? `, e vi que você tem interesse em ${interesse}` : '';
+  return (
+    `Oi${nome ? `, ${nome}` : ''}! Aqui é a equipe da ${clinica} 💛 ` +
+    `A ${assistente} me passou seu contato${assunto}. ` +
+    `Vou continuar seu atendimento por aqui, tudo bem?${MARCA_PASSAGEM}`
+  );
+}
+
+/** Credencial do chip principal, se ele existir e estiver no ar. */
+async function principalDisponivel(
+  principalId: string | null,
+): Promise<{ instancia: string; token: string } | null> {
+  if (!principalId) return null;
+  const { data } = await anonimo().rpc('wa_ler_credencial', {
+    p_segredo: await segredo(),
+    p_numero_id: principalId,
+  });
+  const credencial = data?.[0];
+  if (!credencial?.token) return null;
+  try {
+    return estaConectado(await statusInstancia(credencial.token)) ? credencial : null;
+  } catch {
+    return null;
+  }
+}
+
 export type ResultadoAssistente =
-  | { respondeu: true; texto: string }
+  | { respondeu: true; texto: string; passouParaPrincipal: boolean }
   | { respondeu: false; motivo: string };
 
 /**
@@ -146,6 +225,10 @@ export async function responderConversa(
 ): Promise<ResultadoAssistente> {
   const chave = await segredo();
   const servidor = anonimo();
+
+  // No chip principal quem atende é a equipe: ali só chega lead qualificado.
+  const funcao = await lerFuncao(token).catch(() => ({ principal: false, principalId: null }));
+  if (funcao.principal) return { respondeu: false, motivo: 'chip principal é atendido pela equipe' };
 
   const { data, error } = await servidor.rpc('wa_contexto_assistente', {
     p_segredo: chave,
@@ -175,18 +258,49 @@ export async function responderConversa(
    * conversa para uma pessoa é o botão "Assumir conversa".
    */
 
+  if (contexto.mensagens.some((m) => m.conteudo?.includes(MARCA_PASSAGEM))) {
+    return { respondeu: false, motivo: 'lead já passado para o chip principal' };
+  }
+
   const prompt = montarPrompt(contexto);
   if (!prompt.trim()) return { respondeu: false, motivo: 'prompt vazio' };
 
+  // Só pede a decisão de qualificar quando há para onde mandar o lead.
+  const qualifica = Boolean(funcao.principalId);
+
   const falas: Fala[] = [
-    { papel: 'system', texto: prompt },
+    { papel: 'system', texto: qualifica ? prompt + INSTRUCOES_QUALIFICACAO : prompt },
     ...contexto.mensagens.map<Fala>((m) => ({
       papel: m.autor === 'paciente' ? 'user' : 'assistant',
       texto: m.conteudo,
     })),
   ];
 
-  const texto = await gerarResposta({ modelo: c.modelo_ia, falas });
+  const bruto = await gerarResposta({ modelo: c.modelo_ia, falas, json: qualifica });
+  const decisao = qualifica
+    ? lerDecisao(bruto)
+    : { mensagem: bruto, qualificado: false, interesse: '' };
+
+  // A passagem só acontece se o principal estiver no ar; senão a IA segue
+  // atendendo, e o aviso de "a especialista vai te chamar" não pode sair.
+  const principal = decisao.qualificado ? await principalDisponivel(funcao.principalId) : null;
+  const texto =
+    decisao.qualificado && !principal
+      ? (lerDecisao(
+          await gerarResposta({
+            modelo: c.modelo_ia,
+            falas: [
+              ...falas,
+              {
+                papel: 'system',
+                texto:
+                  'A equipe não está disponível agora. Responda com "qualificado": false e siga você mesma o atendimento, oferecendo ajuda com o próximo passo.',
+              },
+            ],
+            json: true,
+          }),
+        ).mensagem)
+      : decisao.mensagem;
 
   const enviada = await enviarTexto(token, telefone, texto);
   const idExterno = enviada?.id ?? enviada?.messageid ?? enviada?.key?.id ?? null;
@@ -198,5 +312,24 @@ export async function responderConversa(
     p_id_externo: idExterno,
   });
 
-  return { respondeu: true, texto };
+  if (!principal) return { respondeu: true, texto, passouParaPrincipal: false };
+
+  /*
+   * A passagem: o chip principal chama o lead. Registrar a mensagem por ele
+   * leva a conversa para o principal, que é onde a equipe está olhando.
+   */
+  const abertura = mensagemDaPassagem(contexto, decisao.interesse);
+  const saida = await enviarTexto(principal.token, telefone, abertura);
+  await servidor.rpc('wa_registrar_mensagem', {
+    p_segredo: chave,
+    p_instancia: principal.instancia,
+    p_telefone: telefone,
+    p_conteudo: abertura,
+    p_de_mim: true,
+    p_id_externo: saida?.id ?? saida?.messageid ?? saida?.key?.id ?? null,
+    p_tipo: 'texto',
+    p_enviada_pela_api: true,
+  });
+
+  return { respondeu: true, texto, passouParaPrincipal: true };
 }

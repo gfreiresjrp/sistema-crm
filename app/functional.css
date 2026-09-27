@@ -3139,3 +3139,75 @@ textarea.prompt {
   color: var(--muted);
   white-space: nowrap;
 }
+
+/* ------------------------------------------------ papel de cada chip */
+.apelido-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.apelido-chip em {
+  flex-shrink: 0;
+  padding: 1px 7px;
+  font-size: 10.5px;
+  font-style: normal;
+  font-weight: 600;
+  border-radius: 999px;
+}
+
+.funcao-principal {
+  color: var(--on-gold);
+  background: var(--gold);
+}
+
+.funcao-disparo {
+  color: var(--text-2);
+  background: var(--surface-2);
+}
+
+/* ------------------------------------------------ anexo da campanha */
+.anexo-campanha {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 6px 0 12px;
+  font-size: 13px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+
+.anexo-campanha > svg {
+  flex-shrink: 0;
+  color: var(--gold-tinta);
+}
+
+.anexo-campanha span {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.anexo-vazio {
+  color: var(--text-2);
+  border-style: dashed;
+  cursor: pointer;
+}
+
+.anexo-vazio:hover {
+  border-color: var(--gold-line);
+}
+
+.anexo-vazio input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}

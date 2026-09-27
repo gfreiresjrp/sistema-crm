@@ -21,6 +21,8 @@ export type Instancia = {
   name?: string;
   profileName?: string;
   owner?: string;
+  adminField01?: string;
+  adminField02?: string;
 };
 
 export type RespostaConexao = {
@@ -130,6 +132,20 @@ export async function statusInstancia(token: string): Promise<RespostaConexao> {
   return chamar<RespostaConexao>('/instance/status', { metodo: 'GET', token });
 }
 
+/**
+ * Grava os dois campos livres da instância. Só o token de administrador
+ * escreve; o token da própria instância lê (vem em /instance/status).
+ */
+export async function atualizarCamposAdmin(
+  instanciaId: string,
+  campos: { adminField01: string; adminField02: string },
+): Promise<unknown> {
+  return chamar('/instance/updateAdminFields', {
+    corpo: { id: instanciaId, ...campos },
+    adminToken: await admin(),
+  });
+}
+
 export async function desconectarInstancia(token: string): Promise<unknown> {
   return chamar('/instance/disconnect', { corpo: {}, token });
 }
@@ -179,6 +195,8 @@ export async function criarDisparo(
   token: string,
   entrada: {
     mensagens: Array<{ numero: string; texto: string }>;
+    /** Imagem ou documento que acompanha cada mensagem; o texto vira legenda. */
+    anexo?: { tipo: 'image' | 'document'; url: string; nome?: string | null } | null;
     pasta: string;
     atrasoMin: number;
     atrasoMax: number;
@@ -191,7 +209,19 @@ export async function criarDisparo(
       delayMin: entrada.atrasoMin,
       delayMax: entrada.atrasoMax,
       scheduled_for: entrada.agendadoPara ?? 0,
-      messages: entrada.mensagens.map((m) => ({ number: m.numero, type: 'text', text: m.texto })),
+      messages: entrada.mensagens.map((m) =>
+        entrada.anexo
+          ? {
+              number: m.numero,
+              type: entrada.anexo.tipo,
+              file: entrada.anexo.url,
+              ...(m.texto ? { text: m.texto } : {}),
+              ...(entrada.anexo.tipo === 'document' && entrada.anexo.nome
+                ? { docName: entrada.anexo.nome }
+                : {}),
+            }
+          : { number: m.numero, type: 'text', text: m.texto },
+      ),
     },
     token,
   });

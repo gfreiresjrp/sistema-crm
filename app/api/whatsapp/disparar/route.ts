@@ -10,6 +10,14 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/tipos-banco';
 import { checarNumeros, criarDisparo } from '@/lib/servidor/uazapi';
 
+/** Arquivo que acompanha a campanha, guardado em `filtro_publico.anexo`. */
+type AnexoCampanha = {
+  caminho: string;
+  tipo: 'imagem' | 'documento';
+  nome: string | null;
+  mimetype: string | null;
+};
+
 /**
  * Troca os marcadores da mensagem pelos dados do contato.
  *
@@ -48,6 +56,7 @@ async function registrarNasConversas(
     clinicaId: string;
     numeroId: string;
     mensagens: Array<{ pacienteId: string; texto: string }>;
+    anexo: AnexoCampanha | null;
   },
 ) {
   const pacientes = entrada.mensagens.map((m) => m.pacienteId);
@@ -92,7 +101,10 @@ async function registrarNasConversas(
       conversa_id: conversaDe.get(m.pacienteId)!,
       autor: 'sistema' as const,
       direcao: 'saida' as const,
-      conteudo: m.texto,
+      conteudo: m.texto || null,
+      ...(entrada.anexo
+        ? { tipo_conteudo: entrada.anexo.tipo, midia_url: entrada.anexo.caminho }
+        : {}),
       numero_whatsapp_id: entrada.numeroId,
       status: 'pendente' as const,
     })),
@@ -125,8 +137,15 @@ export async function POST(req: Request) {
       .maybeSingle();
 
     if (!campanha) return erro('Campanha não encontrada.', 404);
-    if (!campanha.modelo_mensagem?.trim()) {
-      return erro('Escreva a mensagem da campanha antes de disparar.');
+
+    /*
+     * Anexo da campanha. O banco não tem coluna para ele, então vive no JSON
+     * da campanha, ao lado da lista: `filtro_publico.anexo`.
+     */
+    const anexo = ((campanha.filtro_publico ?? {}) as { anexo?: AnexoCampanha }).anexo ?? null;
+
+    if (!campanha.modelo_mensagem?.trim() && !anexo) {
+      return erro('Escreva a mensagem ou anexe um arquivo antes de disparar.');
     }
 
     /**
@@ -137,16 +156,33 @@ export async function POST(req: Request) {
      */
     const { data: escolhidos } = await autorizacao.cliente
       .from('campanha_numeros')
-      .select('numero_whatsapp_id, numeros_whatsapp(id, apelido, ativo, status)')
+      .select('numero_whatsapp_id, numeros_whatsapp(id, apelido, ativo, status, peso_rotacao)')
       .eq('campanha_id', campanha.id);
 
     const escolhido = (escolhidos ?? [])
-      .map((v) => v.numeros_whatsapp as { id: string; apelido: string; ativo: boolean; status: string } | null)
+      .map(
+        (v) =>
+          v.numeros_whatsapp as {
+            id: string;
+            apelido: string;
+            ativo: boolean;
+            status: string;
+            peso_rotacao: number;
+          } | null,
+      )
       .find((n) => n?.ativo);
 
     let numeroChip: { id: string } | null = null;
 
     if (escolhido) {
+      // O principal só recebe leads qualificados; disparar por ele queimaria
+      // o número que a equipe usa para fechar.
+      if (escolhido.peso_rotacao === 0) {
+        return erro(
+          `"${escolhido.apelido}" é o chip principal e não dispara campanhas. Escolha um chip de disparo.`,
+          409,
+        );
+      }
       if (escolhido.status !== 'conectado') {
         return erro(
           `O número "${escolhido.apelido}", responsável por esta campanha, não está conectado.`,
@@ -161,6 +197,7 @@ export async function POST(req: Request) {
         .eq('clinica_id', campanha.clinica_id)
         .eq('ativo', true)
         .eq('status', 'conectado')
+        .gt('peso_rotacao', 0)
         .order('peso_rotacao', { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -169,7 +206,7 @@ export async function POST(req: Request) {
 
     if (!numeroChip) {
       return erro(
-        'Nenhum número conectado. Conecte um em Minha clínica › Números de WhatsApp.',
+        'Nenhum chip de disparo conectado. Conecte um em Minha clínica › Números de WhatsApp (o principal não dispara).',
         409,
       );
     }
@@ -243,7 +280,31 @@ export async function POST(req: Request) {
     const porHora = Math.max(1, campanha.envios_por_hora ?? 240);
     const medioSegundos = Math.max(4, Math.round(3600 / porHora));
 
+    /*
+     * A UazApi busca o arquivo na hora de cada envio, que numa lista longa
+     * pode ser horas depois: a assinatura dura o máximo que o Storage aceita
+     * (7 dias). Guardamos o caminho; a URL assinada é só para esta fila.
+     */
+    let anexoUrl: string | null = null;
+    if (anexo) {
+      const { data: assinada, error: erroAssinatura } = await autorizacao.cliente.storage
+        .from('midias')
+        .createSignedUrl(anexo.caminho, 60 * 60 * 24 * 7);
+      if (erroAssinatura || !assinada?.signedUrl) {
+        return erro('O arquivo da campanha não foi encontrado. Anexe de novo.', 409);
+      }
+      anexoUrl = assinada.signedUrl;
+    }
+
     const disparo = await criarDisparo(linha.token, {
+      anexo:
+        anexo && anexoUrl
+          ? {
+              tipo: anexo.tipo === 'imagem' ? 'image' : 'document',
+              url: anexoUrl,
+              nome: anexo.nome,
+            }
+          : null,
       mensagens: alvos.map((p) => ({
         numero: normalizarTelefone(p.telefone),
         texto: personalizar(campanha.modelo_mensagem, p.nome_completo),
@@ -274,6 +335,7 @@ export async function POST(req: Request) {
         pacienteId: p.id,
         texto: personalizar(campanha.modelo_mensagem, p.nome_completo),
       })),
+      anexo,
     });
 
     // A pasta é a chave para reconciliar depois quem de fato recebeu.

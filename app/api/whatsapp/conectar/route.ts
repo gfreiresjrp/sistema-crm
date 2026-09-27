@@ -14,6 +14,7 @@ import {
   statusInstancia,
 } from '@/lib/servidor/uazapi';
 import { anonimo } from '@/lib/servidor/banco';
+import { gravarFuncao } from '@/lib/servidor/funcao-chip';
 
 /**
  * Inicia o pareamento de um número.
@@ -79,6 +80,26 @@ export async function POST(req: Request) {
     } catch (e) {
       avisoWebhook = e instanceof Error ? e.message : 'Não foi possível registrar o webhook.';
       console.warn('[whatsapp] webhook não registrado:', avisoWebhook);
+    }
+
+    // O papel do chip (principal ou disparo) viaja com a instância; uma
+    // instância nova nasce sem ele e o webhook não saberia para onde passar
+    // os leads qualificados.
+    try {
+      const { data: principal } = await autorizacao.cliente
+        .from('numeros_whatsapp')
+        .select('id')
+        .eq('clinica_id', numero.clinica_id)
+        .eq('ativo', true)
+        .eq('peso_rotacao', 0)
+        .limit(1)
+        .maybeSingle();
+      await gravarFuncao(token, {
+        principal: principal?.id === numeroId,
+        principalId: principal?.id ?? null,
+      });
+    } catch (e) {
+      console.warn('[whatsapp] papel do chip não gravado:', e instanceof Error ? e.message : e);
     }
 
     const conexao = await conectarInstancia(token, telefone || undefined);

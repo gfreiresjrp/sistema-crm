@@ -78,6 +78,11 @@ export const whatsapp = {
       { corpo: { pacienteIds } },
     ),
 
+  definirPrincipal: (entrada: { numeroId: string | null; clinicaId: string }) =>
+    chamar<{ ok: true; principal: string | null; semInstancia: string[] }>(
+      '/api/whatsapp/principal',
+      { corpo: entrada },
+    ),
   dispararCampanha: (campanhaId: string) =>
     chamar<{ ok: true; enviados: number; ignorados: number }>('/api/whatsapp/disparar', {
       corpo: { campanhaId },

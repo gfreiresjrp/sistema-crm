@@ -24,6 +24,8 @@ export async function gerarResposta(entrada: {
   falas: Fala[];
   maximoTokens?: number;
   temperatura?: number;
+  /** Obriga a resposta a ser um objeto JSON (o prompt diz qual). */
+  json?: boolean;
 }): Promise<string> {
   const chave = await variavel('OPENAI_API_KEY');
 
@@ -43,6 +45,7 @@ export async function gerarResposta(entrada: {
       // texto longo demais para o canal.
       max_tokens: entrada.maximoTokens ?? 320,
       temperature: entrada.temperatura ?? 0.6,
+      ...(entrada.json ? { response_format: { type: 'json_object' } } : {}),
     }),
   });
 
