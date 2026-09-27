@@ -153,7 +153,7 @@ function instrucoesDeResposta(entrada: {
   const regrasAgenda = agenda
     ? `AGENDA (horários livres para avaliação; o código depois do "=" é só para o campo "horario")
 ${agenda}
-- Quando a pessoa quiser marcar, ofereça 2 ou 3 destes horários NA MESMA mensagem. Nunca ofereça horário fora desta lista.
+- Quando a pessoa aceitar ou pedir para marcar, a sua mensagem JÁ traz 2 ou 3 destes horários escritos por extenso (ex.: "tenho quarta às 10h, quarta às 14h ou quinta às 9h, qual fica melhor?"). Nunca pergunte "qual horário você prefere?" sem listar as opções, e nunca ofereça horário fora desta lista.
 - Quando ela escolher um, preencha "horario" com o código dele.`
     : `AGENDA
 - Você não tem a agenda agora. Quando a pessoa quiser marcar, diga que a equipe vai combinar o melhor horário com ela.`;
