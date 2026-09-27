@@ -106,16 +106,23 @@ async function atenderPassagens(
     try {
       const saida = await enviarTexto(token, telefone, texto, Math.min(6000, tempoDigitando(texto)));
       // Registrar pelo principal leva a conversa para ele, onde a equipe olha.
-      await anonimo().rpc('wa_registrar_mensagem', {
+      // A função do banco só é encontrada com todos os parâmetros: faltando
+      // p_nome/p_midia_url/p_foto, o PostgREST não acha a assinatura e a
+      // abertura sumia da conversa (e a IA do disparo não sabia que já passou).
+      const { error: erroRegistro } = await anonimo().rpc('wa_registrar_mensagem', {
         p_segredo: await segredo(),
         p_instancia: instancia,
         p_telefone: telefone,
+        p_nome: null,
         p_conteudo: texto,
         p_de_mim: true,
         p_id_externo: saida?.id ?? saida?.messageid ?? saida?.key?.id ?? null,
         p_tipo: 'texto',
+        p_midia_url: null,
         p_enviada_pela_api: true,
+        p_foto: null,
       });
+      if (erroRegistro) console.error('[fila-ia] abertura sem registro:', erroRegistro.message);
       /*
        * A conversa passa a ser do principal: sai do filtro do chip de disparo
        * e as respostas da equipe saem por ele. Registrar a mensagem não troca
