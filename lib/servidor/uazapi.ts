@@ -182,6 +182,7 @@ export type ChatLead = {
   lead_field01?: string;
   lead_field02?: string;
   lead_field03?: string;
+  lead_notes?: string;
 };
 
 /** Grava campos livres do contato na UazApi (lead_status, lead_fieldNN). */

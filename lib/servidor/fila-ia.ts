@@ -1,6 +1,13 @@
-import { responderConversa } from './assistente';
+import { responderConversa, tempoDigitando } from './assistente';
+import { anonimo, segredo } from './banco';
 import { lerFuncao } from './funcao-chip';
-import { chatsComStatus, editarLead, estaConectado, listarInstancias } from './uazapi';
+import {
+  chatsComStatus,
+  editarLead,
+  enviarTexto,
+  estaConectado,
+  listarInstancias,
+} from './uazapi';
 
 /**
  * A fila de respostas da IA.
@@ -17,12 +24,25 @@ import { chatsComStatus, editarLead, estaConectado, listarInstancias } from './u
  *   lead_field01 = id da conversa no banco
  *   lead_field02 = quando pode responder (ms desde 1970)
  *   lead_field03 = tentativas que falharam
+ *
+ * No chip principal a fila guarda a passagem — a abertura com que a equipe
+ * assume o lead qualificado:
+ *   lead_status  = 'passagem'
+ *   lead_notes   = o texto da abertura
  */
 
 const NA_FILA = 'ia_fila';
+const PASSAGEM = 'passagem';
 
 /** Quanto a IA espera depois da última mensagem do lead. */
-export const ESPERA_ANTES_DE_RESPONDER = 60_000;
+export const ESPERA_ANTES_DE_RESPONDER = 50_000;
+
+/**
+ * O agendador passa a cada minuto; sem isto a resposta cairia entre 50 e
+ * 110 s. Quem vence nos próximos segundos é atendido nesta passada, esperando
+ * a hora exata — a espera real fica perto dos 50 s.
+ */
+const ANTECIPA = 8_000;
 
 /** Tentativas antes de desistir de um lead (ex.: OpenAI fora do ar). */
 const TENTATIVAS = 3;
@@ -47,7 +67,59 @@ async function tirarDaFila(token: string, chatid: string) {
     lead_field01: '',
     lead_field02: '',
     lead_field03: '',
+    lead_notes: '',
   });
+}
+
+/** Põe a abertura do principal na fila dele, para a próxima passada. */
+export async function agendarPassagem(
+  tokenPrincipal: string,
+  telefone: string,
+  passagem: { conversaId: string; texto: string },
+) {
+  await editarLead(tokenPrincipal, `${telefone}@s.whatsapp.net`, {
+    lead_status: PASSAGEM,
+    lead_field01: passagem.conversaId,
+    lead_field02: String(Date.now() + 20_000),
+    lead_field03: '0',
+    lead_notes: passagem.texto,
+  });
+}
+
+/** O principal manda as aberturas pendentes, uma por vez. */
+async function atenderPassagens(token: string, instancia: string, prazo: number): Promise<string[]> {
+  const relatorio: string[] = [];
+  const pendentes = (await chatsComStatus(token, PASSAGEM)).filter(
+    (c) => c.wa_chatid && c.lead_notes && Number(c.lead_field02) <= Date.now(),
+  );
+  for (const chat of pendentes) {
+    if (Date.now() > prazo - 12_000) break;
+    const chatid = chat.wa_chatid!;
+    const telefone = chatid.split('@')[0];
+    const texto = chat.lead_notes!;
+    try {
+      const saida = await enviarTexto(token, telefone, texto, Math.min(6000, tempoDigitando(texto)));
+      // Registrar pelo principal leva a conversa para ele, onde a equipe olha.
+      await anonimo().rpc('wa_registrar_mensagem', {
+        p_segredo: await segredo(),
+        p_instancia: instancia,
+        p_telefone: telefone,
+        p_conteudo: texto,
+        p_de_mim: true,
+        p_id_externo: saida?.id ?? saida?.messageid ?? saida?.key?.id ?? null,
+        p_tipo: 'texto',
+        p_enviada_pela_api: true,
+      });
+      await tirarDaFila(token, chatid);
+      relatorio.push(`passagem ${telefone}`);
+    } catch (e) {
+      const tentativas = Number(chat.lead_field03 || 0) + 1;
+      if (tentativas >= TENTATIVAS) await tirarDaFila(token, chatid);
+      else await editarLead(token, chatid, { lead_field03: String(tentativas) });
+      relatorio.push(`passagem falhou ${telefone}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+  return relatorio;
 }
 
 /**
@@ -58,13 +130,17 @@ async function tirarDaFila(token: string, chatid: string) {
 async function atenderChip(token: string, prazo: number): Promise<string[]> {
   const relatorio: string[] = [];
   const vencidos = (await chatsComStatus(token, NA_FILA))
-    .filter((c) => c.wa_chatid && c.lead_field01 && Number(c.lead_field02) <= Date.now())
+    .filter(
+      (c) => c.wa_chatid && c.lead_field01 && Number(c.lead_field02) <= Date.now() + ANTECIPA,
+    )
     .sort((a, b) => Number(a.lead_field02) - Number(b.lead_field02));
 
   for (const chat of vencidos) {
     if (Date.now() > prazo) break;
     const chatid = chat.wa_chatid!;
     const telefone = chatid.split('@')[0];
+    const falta = Number(chat.lead_field02) - Date.now();
+    if (falta > 0) await new Promise((pronto) => setTimeout(pronto, falta));
     try {
       const resultado = await responderConversa(chat.lead_field01!, token, telefone);
       await tirarDaFila(token, chatid);
@@ -99,8 +175,9 @@ export async function processarFilaIa(): Promise<string[]> {
   const resultados = await Promise.all(
     instancias.map(async (i) => {
       const funcao = await lerFuncao(i.token!).catch(() => null);
-      // No principal a IA não responde; nada entra na fila dele.
-      if (!funcao || funcao.principal) return [];
+      if (!funcao) return [];
+      // No principal a IA não responde; a fila dele só tem as passagens.
+      if (funcao.principal) return atenderPassagens(i.token!, i.name!, prazo).catch(() => []);
       return atenderChip(i.token!, prazo).catch((e) => [
         `chip ${i.name}: ${e instanceof Error ? e.message : String(e)}`,
       ]);

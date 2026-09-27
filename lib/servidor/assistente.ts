@@ -6,6 +6,7 @@ import { horariosLivres, type HorarioLivre } from './agenda';
 import { lerFuncao } from './funcao-chip';
 import { clienteDoRobo } from './robo';
 import { gerarResposta, type Fala } from './openai';
+import { agendarPassagem } from './fila-ia';
 import { enviarTexto, estaConectado, marcarComoLido, statusInstancia } from './uazapi';
 
 /**
@@ -295,9 +296,9 @@ async function principalDisponivel(
 const esperar = (ms: number) => new Promise((pronto) => setTimeout(pronto, ms));
 const entre = (min: number, max: number) => min + Math.random() * (max - min);
 
-function tempoDigitando(texto: string): number {
-  // ~35 caracteres por segundo no celular, entre 3 e 11 segundos.
-  return Math.round(Math.min(11000, Math.max(3000, (texto.length / 35) * 1000 + entre(0, 1500))));
+export function tempoDigitando(texto: string): number {
+  // ~35 caracteres por segundo no celular, entre 3 e 9 segundos.
+  return Math.round(Math.min(9000, Math.max(3000, (texto.length / 35) * 1000 + entre(0, 1500))));
 }
 
 export type ResultadoAssistente =
@@ -454,28 +455,14 @@ export async function responderConversa(
   if (!principal) return { respondeu: true, texto, passouParaPrincipal: false };
 
   /*
-   * A passagem: o chip principal chama o lead. Registrar a mensagem por ele
-   * leva a conversa para o principal, que é onde a equipe está olhando.
+   * A passagem: o chip principal chama o lead. Não sai daqui — entra na fila
+   * do principal e o agendador manda na passada seguinte. Enviar tudo de uma
+   * vez estourava os 30 s que o Workers dá ao trabalho em segundo plano, e a
+   * abertura do principal era cortada.
    */
-  const abertura = mensagemDaPassagem(contexto, decisao.interesse, escolhido);
-  // Quem assume é uma pessoa: um respiro antes, e digitando.
-  // O teto de 6 s na digitação mantém a passagem inteira dentro dos 30 s.
-  await esperar(entre(1500, 2500));
-  const saida = await enviarTexto(
-    principal.token,
-    telefone,
-    abertura,
-    Math.min(6000, tempoDigitando(abertura)),
-  );
-  await servidor.rpc('wa_registrar_mensagem', {
-    p_segredo: chave,
-    p_instancia: principal.instancia,
-    p_telefone: telefone,
-    p_conteudo: abertura,
-    p_de_mim: true,
-    p_id_externo: saida?.id ?? saida?.messageid ?? saida?.key?.id ?? null,
-    p_tipo: 'texto',
-    p_enviada_pela_api: true,
+  await agendarPassagem(principal.token, telefone, {
+    conversaId,
+    texto: mensagemDaPassagem(contexto, decisao.interesse, escolhido),
   });
 
   return { respondeu: true, texto, passouParaPrincipal: true };

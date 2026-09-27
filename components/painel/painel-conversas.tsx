@@ -202,18 +202,46 @@ export function PainelConversas({ busca }: { busca: string }) {
   }, [clinicaId]);
 
   /**
-   * Em que estágio do atendimento cada conversa está.
-   *
-   * Sai do que já existe no banco: resolvida está finalizada; com atendente é
-   * atendimento humano; o resto aguarda alguém — inclusive as que a IA está
-   * respondendo, porque elas ainda podem precisar de gente.
+   * Quem falou por último em cada conversa. É o que diz, ao vivo, se o lead
+   * está esperando alguém ou se já está sendo atendido — a view da caixa de
+   * entrada não traz o autor da última mensagem.
    */
-  const estagio = (linha: LinhaCaixa) =>
-    linha.status === 'resolvida'
-      ? 'finalizadas'
-      : linha.assumida_por
-        ? 'atendendo'
-        : 'aguardando';
+  const idsDaCaixa = (caixa.dados ?? []).map((l) => l.conversa_id).join(',');
+  const ultimasFalas = useConsulta<Array<{ conversa_id: string; autor: string }>>(
+    idsDaCaixa
+      ? () =>
+          supabase
+            .from('mensagens')
+            .select('conversa_id, autor, criado_em')
+            .in('conversa_id', idsDaCaixa.split(','))
+            .order('criado_em', { ascending: false })
+            .limit(1000)
+      : null,
+    [idsDaCaixa], [pulso],
+  );
+  const ultimoAutor = useMemo(() => {
+    const mapa = new Map<string, string>();
+    for (const m of ultimasFalas.dados ?? []) {
+      if (!mapa.has(m.conversa_id)) mapa.set(m.conversa_id, m.autor);
+    }
+    return mapa;
+  }, [ultimasFalas.dados]);
+
+  /**
+   * Em que estágio do atendimento cada conversa está, pelo que acontece nela:
+   *  - finalizada: encerrada pela equipe;
+   *  - atendendo: alguém respondeu por último (a IA ou a equipe), ou a
+   *    conversa foi assumida;
+   *  - aguardando: o lead falou por último e espera resposta.
+   * Antes tudo que não estava assumido ficava em "Aguardando", mesmo com a IA
+   * conversando com o lead.
+   */
+  const estagio = (linha: LinhaCaixa) => {
+    if (linha.status === 'resolvida') return 'finalizadas';
+    if (linha.assumida_por) return 'atendendo';
+    const autor = ultimoAutor.get(linha.conversa_id);
+    return autor && autor !== 'paciente' ? 'atendendo' : 'aguardando';
+  };
 
   /**
    * Cada chip atende a própria carteira de contatos, como uma conta separada
