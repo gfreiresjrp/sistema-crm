@@ -1,6 +1,7 @@
 import { responderConversa, tempoDigitando } from './assistente';
 import { anonimo, segredo } from './banco';
 import { lerFuncao } from './funcao-chip';
+import { clienteDoRobo } from './robo';
 import {
   chatsComStatus,
   editarLead,
@@ -87,7 +88,12 @@ export async function agendarPassagem(
 }
 
 /** O principal manda as aberturas pendentes, uma por vez. */
-async function atenderPassagens(token: string, instancia: string, prazo: number): Promise<string[]> {
+async function atenderPassagens(
+  token: string,
+  instancia: string,
+  funcao: { principalId: string | null; clinicaId: string | null },
+  prazo: number,
+): Promise<string[]> {
   const relatorio: string[] = [];
   const pendentes = (await chatsComStatus(token, PASSAGEM)).filter(
     (c) => c.wa_chatid && c.lead_notes && Number(c.lead_field02) <= Date.now(),
@@ -110,6 +116,18 @@ async function atenderPassagens(token: string, instancia: string, prazo: number)
         p_tipo: 'texto',
         p_enviada_pela_api: true,
       });
+      /*
+       * A conversa passa a ser do principal: sai do filtro do chip de disparo
+       * e as respostas da equipe saem por ele. Registrar a mensagem não troca
+       * o chip da conversa; quem troca é o login da IA (ver robo.ts).
+       */
+      const robo = funcao.clinicaId ? await clienteDoRobo(funcao.clinicaId) : null;
+      if (robo && funcao.principalId && chat.lead_field01) {
+        await robo
+          .from('conversas')
+          .update({ numero_whatsapp_id: funcao.principalId })
+          .eq('id', chat.lead_field01);
+      }
       await tirarDaFila(token, chatid);
       relatorio.push(`passagem ${telefone}`);
     } catch (e) {
@@ -177,7 +195,9 @@ export async function processarFilaIa(): Promise<string[]> {
       const funcao = await lerFuncao(i.token!).catch(() => null);
       if (!funcao) return [];
       // No principal a IA não responde; a fila dele só tem as passagens.
-      if (funcao.principal) return atenderPassagens(i.token!, i.name!, prazo).catch(() => []);
+      if (funcao.principal) {
+        return atenderPassagens(i.token!, i.name!, funcao, prazo).catch(() => []);
+      }
       return atenderChip(i.token!, prazo).catch((e) => [
         `chip ${i.name}: ${e instanceof Error ? e.message : String(e)}`,
       ]);
