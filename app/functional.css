@@ -3195,6 +3195,12 @@ textarea.prompt {
 }
 
 .anexo-vazio {
+  /* É um <label> dentro do Campo: não herda o visual de rótulo do formulário. */
+  margin: 0;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: normal;
+  text-transform: none;
   color: var(--text-2);
   border-style: dashed;
   cursor: pointer;
