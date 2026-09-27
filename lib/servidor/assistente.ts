@@ -133,7 +133,7 @@ function instrucoesDeResposta(entrada: {
   livres: HorarioLivre[] | null;
   temPrincipal: boolean;
 }): string {
-  // Agrupa por dia: "terça-feira, 30/09: 09:00=2026-09-30T09:00, 10:00=…".
+  // Agrupa por dia: "terça-feira, 30/09: 9h=2026-09-30T09:00, 10h=…".
   const porDia = new Map<string, string[]>();
   for (const h of entrada.livres ?? []) {
     const dia = new Intl.DateTimeFormat('pt-BR', {
@@ -143,7 +143,8 @@ function instrucoesDeResposta(entrada: {
       month: '2-digit',
     }).format(new Date(`${h.local.slice(0, 10)}T12:00:00Z`));
     const lista = porDia.get(dia) ?? [];
-    lista.push(`${h.local.slice(11)}=${h.local}`);
+    const [hh, mm] = h.local.slice(11).split(':');
+    lista.push(`${Number(hh)}h${mm === '00' ? '' : mm}=${h.local}`);
     porDia.set(dia, lista);
   }
   const agenda = entrada.livres?.length
