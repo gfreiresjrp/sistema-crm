@@ -161,9 +161,9 @@ ${agenda}
 
   const regrasPassagem = entrada.temPrincipal
     ? `- "qualificado": true quando a pessoa escolheu um horário da lista, ou pediu para falar com alguém da equipe, ou quer fechar e só falta combinar valores. Curiosidade vaga, "só estou olhando", resposta negativa ou pedido para parar de receber mensagens NÃO qualificam.
-Quando "qualificado" for true, a "mensagem" deve, curta e natural, confirmar o horário escolhido (se houver) e avisar que uma especialista da equipe vai continuar o atendimento em instantes pelo número oficial da clínica. Não cite valores nesse caso.`
+Quando "qualificado" for true, a "mensagem" deve, curta e natural, dizer que o horário escolhido (se houver) ficou separado — quem confirma é a equipe, então não diga "agendado" nem "confirmado" — e avisar que uma especialista vai continuar o atendimento em instantes pelo número oficial da clínica. Não cite valores nesse caso.`
     : `- "qualificado": sempre false.
-Quando a pessoa escolher um horário, a "mensagem" deve confirmar que ficou reservado e que a equipe vai confirmar com ela.`;
+Quando a pessoa escolher um horário, a "mensagem" deve dizer que ficou separado e que a equipe vai confirmar com ela (não diga "agendado" nem "confirmado").`;
 
   return `
 
