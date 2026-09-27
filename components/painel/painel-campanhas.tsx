@@ -12,6 +12,7 @@ import {
   Plus,
   Send,
   Smartphone,
+  Sparkles,
   X,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/cliente';
@@ -53,6 +54,32 @@ export const RITMOS: Array<{ porHora: number; rotulo: string }> = [
   { porHora: 120, rotulo: 'Normal — uma a cada 20–40 s' },
   { porHora: 60, rotulo: 'Cuidadoso — uma a cada 40–80 s (chip novo)' },
 ];
+
+/**
+ * O que a IA faz com quem responde a campanha. Fica em
+ * `filtro_publico.ia` (a tabela não tem coluna para isso) e o servidor lê em
+ * `campanha-do-lead.ts`.
+ */
+type ModoIa = 'agendamento' | 'venda';
+type IaCampanha = { modo: ModoIa; instrucoes: string };
+
+const MODOS_IA: Array<{ valor: ModoIa; rotulo: string; dica: string }> = [
+  {
+    valor: 'agendamento',
+    rotulo: 'Agendar avaliação ou procedimento',
+    dica: 'A IA tira dúvidas, oferece horários livres da agenda e passa para a equipe confirmar.',
+  },
+  {
+    valor: 'venda',
+    rotulo: 'Vender produto direto',
+    dica: 'A IA apresenta o produto e, quando a pessoa quer comprar, passa para a equipe fechar. Não oferece horário.',
+  },
+];
+
+function iaDaCampanha(filtro: unknown): IaCampanha {
+  const ia = ((filtro ?? {}) as { ia?: Partial<IaCampanha> }).ia;
+  return { modo: ia?.modo === 'venda' ? 'venda' : 'agendamento', instrucoes: ia?.instrucoes ?? '' };
+}
 
 /** Vínculo campanha → número responsável (tabela `campanha_numeros`). */
 type VinculoNumero = {
@@ -134,12 +161,20 @@ export function PainelCampanhas() {
     [clinicaId], [pulso],
   );
 
-  const ritmos = useConsulta<Array<{ id: string; envios_por_hora: number | null }>>(
+  const ritmos = useConsulta<
+    Array<{ id: string; envios_por_hora: number | null; filtro_publico: unknown }>
+  >(
     clinicaId
-      ? () => supabase.from('campanhas').select('id, envios_por_hora').eq('clinica_id', clinicaId)
+      ? () =>
+          supabase
+            .from('campanhas')
+            .select('id, envios_por_hora, filtro_publico')
+            .eq('clinica_id', clinicaId)
       : null,
     [clinicaId], [pulso],
   );
+  const filtroDaCampanha = new Map((ritmos.dados ?? []).map((r) => [r.id, r.filtro_publico]));
+  const [editandoIa, setEditandoIa] = useState<DesempenhoCampanha | null>(null);
   const ritmoDaCampanha = new Map(
     (ritmos.dados ?? []).map((r) => [r.id, r.envios_por_hora ?? 240]),
   );
@@ -323,7 +358,20 @@ export function PainelCampanhas() {
               </header>
               {linhas.map((linha) => (
                 <div key={linha.campanha_id}>
-                  <span>{linha.campanha}</span>
+                  <span className="nome-campanha">
+                    {linha.campanha}
+                    <button
+                      type="button"
+                      className={`selo-modo-ia ${iaDaCampanha(filtroDaCampanha.get(linha.campanha_id)).modo}`}
+                      onClick={() => setEditandoIa(linha)}
+                      title="O que a IA faz com quem responder — clique para editar"
+                    >
+                      <Sparkles size={11} />
+                      {iaDaCampanha(filtroDaCampanha.get(linha.campanha_id)).modo === 'venda'
+                        ? 'Venda'
+                        : 'Agendamento'}
+                    </button>
+                  </span>
                   <div className="celula-disparo">
                   <select
                     className="select-etapa"
@@ -389,6 +437,15 @@ export function PainelCampanhas() {
         </Conteudo>
       </article>
 
+      {editandoIa && (
+        <ModalIaCampanha
+          campanha={editandoIa}
+          filtro={filtroDaCampanha.get(editandoIa.campanha_id)}
+          aoFechar={() => setEditandoIa(null)}
+          aoSalvar={() => setPulso((n) => n + 1)}
+        />
+      )}
+
       <ModalCampanha
         aberto={modalAberto}
         chips={(chips.dados ?? []).filter((c) => !principalIds.has(c.numero_id))}
@@ -396,6 +453,111 @@ export function PainelCampanhas() {
         aoCriar={() => setPulso((n) => n + 1)}
       />
     </>
+  );
+}
+
+/** Os dois campos que dizem à IA como tratar quem responder a campanha. */
+function CamposIa({
+  modo,
+  instrucoes,
+  aoMudarModo,
+  aoMudarInstrucoes,
+}: {
+  modo: ModoIa;
+  instrucoes: string;
+  aoMudarModo: (modo: ModoIa) => void;
+  aoMudarInstrucoes: (texto: string) => void;
+}) {
+  const escolhido = MODOS_IA.find((m) => m.valor === modo)!;
+  return (
+    <>
+      <Campo rotulo="O que a IA faz com quem responder" dica={escolhido.dica}>
+        <select value={modo} onChange={(e) => aoMudarModo(e.target.value as ModoIa)}>
+          {MODOS_IA.map((m) => (
+            <option key={m.valor} value={m.valor}>
+              {m.rotulo}
+            </option>
+          ))}
+        </select>
+      </Campo>
+      <Campo
+        rotulo="Instruções para a IA nesta campanha (opcional)"
+        dica={
+          modo === 'venda'
+            ? 'O que ela precisa saber para vender: produto, preço, formas de pagamento, prazo, link. Ela não inventa nada fora disto.'
+            : 'O que ela precisa saber desta oferta: procedimento, condição especial, validade, o que falar e o que evitar.'
+        }
+      >
+        <textarea
+          value={instrucoes}
+          onChange={(e) => aoMudarInstrucoes(e.target.value)}
+          rows={4}
+          placeholder={
+            modo === 'venda'
+              ? 'Ex.: Kit Home Care Pele Radiante, R$ 289 à vista ou 3x sem juros no cartão. Entrega em 2 dias para Porto Alegre.'
+              : 'Ex.: Avaliação de full face gratuita até 30/10. Não falar de preço antes da avaliação.'
+          }
+        />
+      </Campo>
+    </>
+  );
+}
+
+/** Edita o modo e as instruções da IA de uma campanha já criada. */
+function ModalIaCampanha({
+  campanha,
+  filtro,
+  aoFechar,
+  aoSalvar,
+}: {
+  campanha: DesempenhoCampanha;
+  filtro: unknown;
+  aoFechar: () => void;
+  aoSalvar: () => void;
+}) {
+  const { executar, ocupado } = useAcao();
+  const atual = iaDaCampanha(filtro);
+  const [modo, setModo] = useState<ModoIa>(atual.modo);
+  const [instrucoes, setInstrucoes] = useState(atual.instrucoes);
+
+  async function salvar() {
+    await executar(
+      () =>
+        supabase
+          .from('campanhas')
+          .update({
+            // Mantém lista e anexo: só a parte da IA muda.
+            filtro_publico: {
+              ...((filtro ?? {}) as Record<string, unknown>),
+              ia: { modo, instrucoes: instrucoes.trim() },
+            },
+          })
+          .eq('id', campanha.campanha_id),
+      `IA de "${campanha.campanha}" atualizada — vale para as próximas respostas`,
+      () => {
+        aoSalvar();
+        aoFechar();
+      },
+    );
+  }
+
+  return (
+    <Modal
+      titulo={`IA da campanha "${campanha.campanha}"`}
+      descricao="Como a IA conduz a conversa com quem responder esta campanha."
+      aberto
+      aoFechar={aoFechar}
+      aoConfirmar={salvar}
+      rotuloConfirmar="Salvar"
+      salvando={ocupado}
+    >
+      <CamposIa
+        modo={modo}
+        instrucoes={instrucoes}
+        aoMudarModo={setModo}
+        aoMudarInstrucoes={setInstrucoes}
+      />
+    </Modal>
   );
 }
 
@@ -556,6 +718,8 @@ function ModalCampanha({
   const [modelo, setModelo] = useState(OBJETIVOS[0].mensagem);
   const [numeroId, setNumeroId] = useState('');
   const [porHora, setPorHora] = useState(240);
+  const [modoIa, setModoIa] = useState<ModoIa>('agendamento');
+  const [instrucoesIa, setInstrucoesIa] = useState('');
   // Público: uma lista de leads ou, sem escolha, toda a base que aceita marketing.
   const [listaId, setListaId] = useState('');
   const listas = useListasLeads(clinicaId, aberto ? 1 : 0);
@@ -611,6 +775,7 @@ function ModalCampanha({
             filtro_publico: {
               ...(listaId ? { lista_id: listaId } : {}),
               ...(anexo ? { anexo } : {}),
+              ia: { modo: modoIa, instrucoes: instrucoesIa.trim() },
             },
             envios_por_hora: porHora,
             criado_por: membroId,
@@ -631,6 +796,8 @@ function ModalCampanha({
         setObjetivoLivre('');
         setNumeroId('');
         setPorHora(240);
+        setModoIa('agendamento');
+        setInstrucoesIa('');
         setArquivo(null);
         setListaId('');
         setMensagemTocada(false);
@@ -689,6 +856,12 @@ function ModalCampanha({
           rows={4}
         />
       </Campo>
+      <CamposIa
+        modo={modoIa}
+        instrucoes={instrucoesIa}
+        aoMudarModo={setModoIa}
+        aoMudarInstrucoes={setInstrucoesIa}
+      />
       <Campo
         rotulo="Imagem ou documento (opcional)"
         dica="Vai junto com cada mensagem; o texto acima vira a legenda. Até 25 MB."

@@ -3,6 +3,7 @@ import { anonimo, segredo } from './banco';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/tipos-banco';
 import { horariosLivres, type HorarioLivre } from './agenda';
+import { campanhaDoLead, type CampanhaDoLead } from './campanha-do-lead';
 import { lerFuncao } from './funcao-chip';
 import { clienteDoRobo } from './robo';
 import { gerarResposta, type Fala } from './openai';
@@ -133,7 +134,9 @@ const MARCA_PASSAGEM = '\u2063';
 function instrucoesDeResposta(entrada: {
   livres: HorarioLivre[] | null;
   temPrincipal: boolean;
+  campanha: CampanhaDoLead | null;
 }): string {
+  const venda = entrada.campanha?.modo === 'venda';
   // Agrupa por dia: "terça-feira, 30/09: 9h=2026-09-30T09:00, 10h=…".
   const porDia = new Map<string, string[]>();
   for (const h of entrada.livres ?? []) {
@@ -152,7 +155,24 @@ function instrucoesDeResposta(entrada: {
     ? [...porDia.entries()].map(([dia, horas]) => `- ${dia}: ${horas.join(', ')}`).join('\n')
     : null;
 
-  const regrasAgenda = agenda
+  /*
+   * A campanha que a pessoa respondeu manda no objetivo da conversa: a mesma
+   * IA vende um produto direto numa campanha e leva para avaliação em outra.
+   */
+  const blocoCampanha = entrada.campanha
+    ? `CAMPANHA QUE ESTA PESSOA RESPONDEU
+Nome: ${entrada.campanha.nome}${entrada.campanha.objetivo ? `\nObjetivo: ${entrada.campanha.objetivo}` : ''}
+Mensagem que ela recebeu: "${entrada.campanha.mensagem}"
+Tipo: ${venda ? 'VENDA DIRETA de produto — o objetivo é a pessoa comprar, não marcar horário.' : 'AGENDAMENTO — o objetivo é marcar uma avaliação ou procedimento.'}${entrada.campanha.instrucoes ? `\nInstruções da clínica para esta campanha (siga à risca; se falarem de preço, condição ou link, use exatamente o que está aqui):\n${entrada.campanha.instrucoes}` : ''}
+
+`
+    : '';
+
+  const regrasAgenda = venda
+    ? `VENDA
+- Esta campanha é de venda direta: apresente o produto, tire dúvidas e conduza para a compra. Não ofereça avaliação nem horário, a menos que a pessoa peça.
+- Nunca invente preço, condição, prazo ou link: use só o que estiver nas instruções da campanha ou no catálogo. Se não estiver, diga que a equipe passa essa informação.`
+    : agenda
     ? `AGENDA (horários livres para avaliação; o código depois do "=" é só para o campo "horario")
 ${agenda}
 - Quando a pessoa aceitar ou pedir para marcar, a sua mensagem JÁ traz 2 ou 3 destes horários escritos por extenso (no formato "tenho [dia] às [hora], [dia] às [hora] ou [dia] às [hora], qual fica melhor?", sempre com horários tirados da lista acima — varie os dias e prefira os mais próximos). Nunca pergunte "qual horário você prefere?" sem listar as opções, e nunca ofereça horário fora desta lista.
@@ -160,7 +180,12 @@ ${agenda}
     : `AGENDA
 - Você não tem a agenda agora. Quando a pessoa quiser marcar, diga que a equipe vai combinar o melhor horário com ela.`;
 
-  const regrasPassagem = entrada.temPrincipal
+  const regrasPassagem = venda
+    ? entrada.temPrincipal
+      ? `- "qualificado": true quando a pessoa disse que quer comprar, perguntou como pagar ou fechar, ou pediu para falar com alguém da equipe. Curiosidade vaga, "só estou olhando", resposta negativa ou pedido para parar de receber mensagens NÃO qualificam.
+Quando "qualificado" for true, a "mensagem" deve, curta e natural, avisar que uma especialista vai finalizar a compra com ela em instantes pelo número oficial da clínica.`
+      : `- "qualificado": sempre false.`
+    : entrada.temPrincipal
     ? `- "qualificado": true quando a pessoa escolheu um horário da lista, ou pediu para falar com alguém da equipe, ou quer fechar e só falta combinar valores. Curiosidade vaga, "só estou olhando", resposta negativa ou pedido para parar de receber mensagens NÃO qualificam.
 Quando "qualificado" for true, a "mensagem" deve, curta e natural, dizer que o horário escolhido (se houver) ficou separado — quem confirma é a equipe, então não diga "agendado" nem "confirmado" — e avisar que uma especialista vai continuar o atendimento em instantes pelo número oficial da clínica. Não cite valores nesse caso.`
     : `- "qualificado": sempre false.
@@ -168,7 +193,7 @@ Quando a pessoa escolher um horário, a "mensagem" deve dizer que ficou separado
 
   return `
 
-NUNCA diga que vai verificar algo e retornar depois ("vou ver e já te retorno", "aguarde que já te respondo"). Você só consegue falar quando a pessoa escreve: tudo o que tiver para dizer, diga agora.
+${blocoCampanha}NUNCA diga que vai verificar algo e retornar depois ("vou ver e já te retorno", "aguarde que já te respondo"). Você só consegue falar quando a pessoa escreve: tudo o que tiver para dizer, diga agora.
 
 ${regrasAgenda}
 
@@ -177,7 +202,7 @@ Responda sempre com um objeto JSON, sem nada fora dele:
 {"mensagem": "...", "qualificado": false, "interesse": "", "horario": ""}
 - "mensagem": o texto que vai para o WhatsApp do contato, seguindo todas as regras acima.
 ${regrasPassagem}
-- "interesse": o procedimento ou assunto que a pessoa quer, em poucas palavras (ex.: "harmonização facial"). Vazio se ainda não souber.
+- "interesse": o procedimento, produto ou assunto que a pessoa quer, em poucas palavras (ex.: "harmonização facial"). Vazio se ainda não souber.
 - "horario": o código do horário que a pessoa escolheu nesta conversa, ou vazio.`;
 }
 
@@ -377,8 +402,10 @@ export async function responderConversa(
 
   // A agenda de verdade, pelo login da IA na clínica (ver robo.ts).
   const robo = funcao.clinicaId ? await clienteDoRobo(funcao.clinicaId).catch(() => null) : null;
+  const campanha = robo ? await campanhaDoLead(robo, conversaId).catch(() => null) : null;
+  // Campanha de venda não oferece horário: nem precisa ler a agenda.
   const livres =
-    robo && funcao.clinicaId
+    robo && funcao.clinicaId && campanha?.modo !== 'venda'
       ? await horariosLivres(robo, {
           clinicaId: funcao.clinicaId,
           fuso: contexto.fuso ?? 'America/Sao_Paulo',
@@ -389,7 +416,7 @@ export async function responderConversa(
 
   const temPrincipal = Boolean(funcao.principalId);
   const falas: Fala[] = [
-    { papel: 'system', texto: prompt + instrucoesDeResposta({ livres, temPrincipal }) },
+    { papel: 'system', texto: prompt + instrucoesDeResposta({ livres, temPrincipal, campanha }) },
     ...contexto.mensagens.map<Fala>((m) => ({
       papel: m.autor === 'paciente' ? 'user' : 'assistant',
       texto: m.conteudo,
@@ -426,7 +453,7 @@ export async function responderConversa(
   if (opcoes?.simular) {
     return {
       respondeu: true,
-      texto: `${texto} [agenda: ${livres ? `${livres.length} horários livres` : 'sem acesso'}${escolhido ? `; escolheu ${escolhido.rotulo}` : ''}${decisao.qualificado ? `; qualificado: ${decisao.interesse}; principal ${principal ? 'no ar' : 'fora do ar'}` : ''}]`,
+      texto: `${texto} [campanha: ${campanha ? `${campanha.nome} (${campanha.modo})` : 'nenhuma'}; agenda: ${livres ? `${livres.length} horários livres` : 'sem acesso'}${escolhido ? `; escolheu ${escolhido.rotulo}` : ''}${decisao.qualificado ? `; qualificado: ${decisao.interesse}; principal ${principal ? 'no ar' : 'fora do ar'}` : ''}]`,
       passouParaPrincipal: false,
     };
   }

@@ -3316,3 +3316,40 @@ textarea.prompt {
   color: var(--gold-tinta);
   background: var(--surface-2);
 }
+
+/* ------------------------------------------------ modo da IA na campanha */
+.nome-campanha {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 5px;
+  min-width: 0;
+}
+
+.selo-modo-ia {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.selo-modo-ia.agendamento {
+  color: var(--gold-tinta);
+  background: var(--surface-2);
+}
+
+.selo-modo-ia.venda {
+  color: var(--on-gold);
+  background: var(--gold);
+}
+
+.selo-modo-ia:hover,
+.selo-modo-ia:focus-visible {
+  outline: 1px solid var(--gold-line);
+}
