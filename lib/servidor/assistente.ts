@@ -200,6 +200,7 @@ export async function responderConversa(
   conversaId: string,
   token: string,
   telefone: string,
+  opcoes?: { simular?: boolean },
 ): Promise<ResultadoAssistente> {
   const chave = await segredo();
   const servidor = anonimo();
@@ -282,6 +283,15 @@ export async function responderConversa(
           }),
         ).mensagem)
       : decisao.mensagem;
+
+  // Simulação (rota de diagnóstico): mostra o que a IA faria, sem enviar.
+  if (opcoes?.simular) {
+    return {
+      respondeu: true,
+      texto: `${texto}${decisao.qualificado ? ` [qualificado: ${decisao.interesse}; principal ${principal ? 'no ar' : 'fora do ar'}]` : ''}`,
+      passouParaPrincipal: false,
+    };
+  }
 
   const enviada = await enviarTexto(token, telefone, texto);
   const idExterno = enviada?.id ?? enviada?.messageid ?? enviada?.key?.id ?? null;

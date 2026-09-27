@@ -1,4 +1,6 @@
-import { chaveWebhook } from '@/lib/servidor/banco';
+import { anonimo, chaveWebhook, segredo } from '@/lib/servidor/banco';
+import { responderConversa } from '@/lib/servidor/assistente';
+import { lerFuncao } from '@/lib/servidor/funcao-chip';
 import { variavel, variaveisPresentes } from '@/lib/servidor/ambiente';
 
 /**
@@ -28,5 +30,33 @@ export async function GET(req: Request) {
         : `recusada (HTTP ${resposta.status})`;
   }
 
-  return Response.json({ variaveis, openai });
+  /*
+   * Com `conversa` e `instancia`, roda a IA inteira naquela conversa em modo
+   * simulação — contexto, papel do chip, decisão e texto — sem enviar nada.
+   * Como a IA trabalha em segundo plano, é o único jeito de ver de fora em
+   * que passo ela para.
+   */
+  const conversa = url.searchParams.get('conversa');
+  const instancia = url.searchParams.get('instancia');
+  let simulacao: unknown = null;
+  if (conversa && instancia) {
+    const passos: Record<string, unknown> = {};
+    try {
+      const { data: credencial, error } = await anonimo().rpc('wa_credencial_por_instancia', {
+        p_segredo: await segredo(),
+        p_instancia: instancia,
+      });
+      passos.credencial = error ? `erro: ${error.message}` : Boolean(credencial?.[0]?.token);
+      const token = credencial?.[0]?.token;
+      if (token) {
+        passos.funcao = await lerFuncao(token).catch((e) => `erro: ${String(e)}`);
+        passos.resultado = await responderConversa(conversa, token, '0', { simular: true });
+      }
+    } catch (e) {
+      passos.erro = e instanceof Error ? e.message : String(e);
+    }
+    simulacao = passos;
+  }
+
+  return Response.json({ variaveis, openai, simulacao });
 }
