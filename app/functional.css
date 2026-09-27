@@ -3356,7 +3356,11 @@ textarea.prompt {
 
 /* ------------------------------------------------ prévia do anexo */
 .previa-anexo {
+  /* Fica dentro do <label> do Campo: não herda maiúsculas nem espaçamento. */
   overflow: hidden;
+  font-weight: 400;
+  letter-spacing: normal;
+  text-transform: none;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 10px;
