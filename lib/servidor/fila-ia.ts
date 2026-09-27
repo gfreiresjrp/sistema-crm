@@ -125,14 +125,18 @@ async function atenderPassagens(
       if (erroRegistro) console.error('[fila-ia] abertura sem registro:', erroRegistro.message);
       /*
        * A conversa passa a ser do principal: sai do filtro do chip de disparo
-       * e as respostas da equipe saem por ele. Registrar a mensagem não troca
+       * e as respostas da equipe (inclusive as digitadas no sistema) saem por
+       * ele. Registrar a mensagem não troca
        * o chip da conversa; quem troca é o login da IA (ver robo.ts).
        */
       const robo = funcao.clinicaId ? await clienteDoRobo(funcao.clinicaId) : null;
       if (robo && funcao.principalId && chat.lead_field01) {
+        // E a IA sai da conversa: daqui em diante é a equipe, e a tela para
+        // de mostrar "atendimento automático". Nem o chip de disparo nem o
+        // principal voltam a responder sozinhos este lead.
         await robo
           .from('conversas')
-          .update({ numero_whatsapp_id: funcao.principalId })
+          .update({ numero_whatsapp_id: funcao.principalId, ia_ativa: false })
           .eq('id', chat.lead_field01);
       }
       await tirarDaFila(token, chatid);
