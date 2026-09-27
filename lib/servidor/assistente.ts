@@ -51,28 +51,6 @@ const TOM: Record<string, string> = {
   formal: 'Fale de forma formal e cerimoniosa, tratando por senhor ou senhora.',
 };
 
-/** "23:00" fica dentro de 21:00–08:00; a janela cruza a meia-noite. */
-function dentroDoSilencio(agora: string, inicio: string | null, fim: string | null): boolean {
-  if (!inicio || !fim) return false;
-  const min = (h: string) => {
-    const [hh, mm] = h.split(':');
-    return Number(hh) * 60 + Number(mm ?? 0);
-  };
-  const a = min(agora);
-  const i = min(inicio);
-  const f = min(fim);
-  return i <= f ? a >= i && a < f : a >= i || a < f;
-}
-
-function horaLocal(fuso: string): string {
-  return new Intl.DateTimeFormat('pt-BR', {
-    timeZone: fuso,
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(new Date());
-}
-
 function montarPrompt(contexto: Contexto): string {
   const c = contexto.config!;
 
@@ -244,10 +222,13 @@ export async function responderConversa(
   if (!contexto.ia_ativa) return { respondeu: false, motivo: 'conversa assumida por humano' };
   if (!c.atendimento_24h) return { respondeu: false, motivo: 'atendimento automático desligado' };
 
-  const fuso = contexto.fuso ?? 'America/Sao_Paulo';
-  if (dentroDoSilencio(horaLocal(fuso), c.silencio_inicio, c.silencio_fim)) {
-    return { respondeu: false, motivo: 'horário de silêncio' };
-  }
+  /*
+   * Sem horário de silêncio. A tela Configurar IA só mostra "Atendimento
+   * automático 24h"; a janela `silencio_inicio`–`silencio_fim` (21h–08h por
+   * padrão) não aparece em lugar nenhum e calava a IA toda noite, com a chave
+   * de 24h ligada. Se um dia a clínica quiser silêncio, ele precisa ter campo
+   * na tela antes de voltar a valer aqui.
+   */
 
   /*
    * Não há mais corte por número de respostas. O limite
