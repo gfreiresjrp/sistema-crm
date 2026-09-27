@@ -1,7 +1,19 @@
 'use client';
 
-import { useState } from 'react';
-import { FileText, ImageIcon, Megaphone, Paperclip, Plus, Send, Smartphone, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import {
+  CheckCircle2,
+  FileText,
+  ImageIcon,
+  Megaphone,
+  Pause,
+  Paperclip,
+  Play,
+  Plus,
+  Send,
+  Smartphone,
+  X,
+} from 'lucide-react';
 import { supabase } from '@/lib/supabase/cliente';
 import { useConsulta } from '@/lib/dados/consulta';
 import { useClinica } from '@/lib/dados/sessao';
@@ -11,7 +23,6 @@ import {
   moeda,
   numero,
   percentual,
-  ROTULO_STATUS_CAMPANHA,
   ROTULO_STATUS_CHIP,
   telefoneVisivel,
 } from '@/lib/dados/formato';
@@ -176,28 +187,68 @@ export function PainelCampanhas() {
     );
   }
 
-  /** Pausa ou retoma sem mexer na fila já enfileirada na UazApi. */
-  async function alternar(campanha: DesempenhoCampanha) {
-    const emAndamento = campanha.status === 'em_andamento';
-    await executar(
-      () =>
-        supabase
-          .from('campanhas')
-          .update({ status: emAndamento ? 'pausada' : 'em_andamento' })
-          .eq('id', campanha.campanha_id),
-      emAndamento ? `"${campanha.campanha}" pausada` : `"${campanha.campanha}" retomada`,
-      () => setPulso((n) => n + 1),
-    );
+  /**
+   * Quantos envios de cada campanha ainda estão na fila. É o que diz se a
+   * campanha terminou: sem pendentes, todo mundo da lista já recebeu (ou
+   * falhou) e não há mais nada para a fila fazer.
+   */
+  const envios = useConsulta<Array<{ campanha_id: string; status: string }>>(
+    clinicaId
+      ? () =>
+          supabase
+            .from('envios_campanha')
+            .select('campanha_id, status')
+            .eq('clinica_id', clinicaId)
+            .limit(5000)
+      : null,
+    [clinicaId], [pulso],
+  );
+
+  const andamento = new Map<string, { total: number; pendentes: number }>();
+  for (const e of envios.dados ?? []) {
+    const atual = andamento.get(e.campanha_id) ?? { total: 0, pendentes: 0 };
+    atual.total += 1;
+    if (e.status === 'pendente') atual.pendentes += 1;
+    andamento.set(e.campanha_id, atual);
   }
 
-  /** Enfileira o disparo real na UazApi e monta o funil da campanha. */
-  async function disparar(campanha: DesempenhoCampanha) {
+  /*
+   * A campanha em andamento que esvaziou a fila vira concluída sozinha. Quem
+   * faz isso é a tela porque o agendador não tem permissão de mexer em
+   * campanhas; basta alguém abrir Campanhas para o status acertar.
+   */
+  const concluidas = (campanhas.dados ?? []).filter((c) => {
+    const a = andamento.get(c.campanha_id);
+    return c.status === 'em_andamento' && a && a.total > 0 && a.pendentes === 0;
+  });
+  const idsConcluidas = concluidas.map((c) => c.campanha_id).join(',');
+  useEffect(() => {
+    if (!idsConcluidas) return;
+    void supabase
+      .from('campanhas')
+      .update({ status: 'concluida' })
+      .in('id', idsConcluidas.split(','))
+      .then(() => setPulso((n) => n + 1));
+  }, [idsConcluidas]);
+
+  /** Inicia o envio para a lista inteira. Daqui em diante a fila anda sozinha. */
+  async function iniciar(campanha: DesempenhoCampanha) {
     await executar(
       async () => {
         const r = await whatsapp.dispararCampanha(campanha.campanha_id);
         return { error: null, resultado: r };
       },
-      `Disparo iniciado para "${campanha.campanha}" — a lista inteira vai sair sozinha, no ritmo escolhido`,
+      `"${campanha.campanha}" iniciada — vai enviar para a lista inteira sozinha`,
+      () => setPulso((n) => n + 1),
+    );
+  }
+
+  /** Pausa ou retoma a fila de verdade, na UazApi. */
+  async function controlar(campanha: DesempenhoCampanha, acao: 'pausar' | 'retomar') {
+    await executar(
+      () =>
+        whatsapp.controlarCampanha(campanha.campanha_id, acao).then(() => ({ error: null })),
+      acao === 'pausar' ? `"${campanha.campanha}" pausada` : `"${campanha.campanha}" retomada`,
       () => setPulso((n) => n + 1),
     );
   }
@@ -323,29 +374,14 @@ export function PainelCampanhas() {
                   <span>{numero(linha.responderam)}</span>
                   <span>{numero(linha.agendaram)}</span>
                   <span>{linha.receita ? moeda(linha.receita) : '—'}</span>
-                  <div className="acoes-evento">
-                    <button
-                      className="secondary-btn"
-                      disabled={ocupado || !conectados}
-                      onClick={() => disparar(linha)}
-                      title={
-                        conectados
-                          ? 'Envia para toda a lista, um contato após o outro, no ritmo escolhido'
-                          : 'Conecte um número de WhatsApp primeiro'
-                      }
-                    >
-                      <Send size={14} /> Disparar
-                    </button>
-                    <button
-                      className={`switch ${linha.status === 'em_andamento' ? 'on' : ''}`}
-                      disabled={ocupado}
-                      onClick={() => alternar(linha)}
-                      aria-label={`${ROTULO_STATUS_CAMPANHA[linha.status]} — clique para alternar`}
-                      title={ROTULO_STATUS_CAMPANHA[linha.status]}
-                    >
-                      <i />
-                    </button>
-                  </div>
+                  <ControleCampanha
+                    campanha={linha}
+                    andamento={andamento.get(linha.campanha_id)}
+                    ocupado={ocupado}
+                    podeIniciar={conectados > 0}
+                    aoIniciar={() => iniciar(linha)}
+                    aoControlar={(acao) => controlar(linha, acao)}
+                  />
                 </div>
               ))}
             </div>
@@ -360,6 +396,79 @@ export function PainelCampanhas() {
         aoCriar={() => setPulso((n) => n + 1)}
       />
     </>
+  );
+}
+
+/**
+ * O único controle da campanha. Não existe envio manual: iniciada, a fila
+ * manda para a lista inteira sozinha, no ritmo escolhido, até o último
+ * contato. Aqui só se inicia, pausa ou retoma — e se vê quanto já foi.
+ */
+function ControleCampanha({
+  campanha,
+  andamento,
+  ocupado,
+  podeIniciar,
+  aoIniciar,
+  aoControlar,
+}: {
+  campanha: DesempenhoCampanha;
+  andamento: { total: number; pendentes: number } | undefined;
+  ocupado: boolean;
+  podeIniciar: boolean;
+  aoIniciar: () => void;
+  aoControlar: (acao: 'pausar' | 'retomar') => void;
+}) {
+  const total = andamento?.total ?? 0;
+  const feitos = total - (andamento?.pendentes ?? 0);
+  const progresso = total ? `${numero(feitos)} de ${numero(total)}` : '';
+
+  if (campanha.status === 'concluida') {
+    return (
+      <div className="controle-campanha">
+        <span className="estado-campanha concluida">
+          <CheckCircle2 size={14} /> Concluída{progresso ? ` · ${progresso}` : ''}
+        </span>
+      </div>
+    );
+  }
+
+  if (campanha.status === 'em_andamento' || campanha.status === 'pausada') {
+    const pausada = campanha.status === 'pausada';
+    return (
+      <div className="controle-campanha">
+        <span className={`estado-campanha ${pausada ? 'pausada' : 'enviando'}`}>
+          {!pausada && <i />}
+          {pausada ? 'Pausada' : 'Enviando'}
+          {progresso ? ` · ${progresso}` : ''}
+        </span>
+        <button
+          className="secondary-btn"
+          disabled={ocupado}
+          onClick={() => aoControlar(pausada ? 'retomar' : 'pausar')}
+        >
+          {pausada ? <Play size={14} /> : <Pause size={14} />}
+          {pausada ? 'Retomar' : 'Pausar'}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="controle-campanha">
+      <button
+        className="primary-btn"
+        disabled={ocupado || !podeIniciar}
+        onClick={aoIniciar}
+        title={
+          podeIniciar
+            ? 'Envia para a lista inteira sozinha, no ritmo escolhido, até o último contato'
+            : 'Conecte um chip de disparo primeiro'
+        }
+      >
+        <Send size={14} /> Iniciar campanha
+      </button>
+    </div>
   );
 }
 
@@ -534,7 +643,7 @@ function ModalCampanha({
   return (
     <Modal
       titulo="Criar campanha"
-      descricao="Ela nasce como rascunho — o disparo só começa quando você ligar a chave."
+      descricao="Ela nasce como rascunho. Ao clicar em Iniciar campanha, envia sozinha para a lista inteira."
       aberto={aberto}
       aoFechar={aoFechar}
       aoConfirmar={salvar}

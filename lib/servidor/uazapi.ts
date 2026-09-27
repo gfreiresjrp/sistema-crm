@@ -227,6 +227,15 @@ export async function criarDisparo(
   });
 }
 
+/** Pausa ou retoma uma fila de disparo inteira. */
+export async function controlarDisparo(
+  token: string,
+  pastaId: string,
+  acao: 'stop' | 'continue',
+): Promise<unknown> {
+  return chamar('/sender/edit', { corpo: { folder_id: pastaId, action: acao }, token });
+}
+
 /** Tipos que a UazApi aceita em /send/media. */
 export type TipoMidia = 'image' | 'video' | 'document' | 'audio' | 'ptt' | 'sticker';
 

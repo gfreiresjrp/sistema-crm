@@ -7,6 +7,7 @@ import {
   Copy,
   KeyRound,
   Loader2,
+  Pencil,
   Plus,
   QrCode,
   RefreshCw,
@@ -736,6 +737,8 @@ function Numeros() {
   const [pulso, setPulso] = useState(0);
   const [conectando, setConectando] = useState<NumeroWhatsapp | null>(null);
   const [excluindo, setExcluindo] = useState<NumeroWhatsapp | null>(null);
+  const [renomeando, setRenomeando] = useState<NumeroWhatsapp | null>(null);
+  const [novoApelido, setNovoApelido] = useState('');
 
   const lista = useConsulta<NumeroWhatsapp[]>(
     clinicaId
@@ -791,6 +794,25 @@ function Numeros() {
         ? `${numero.apelido} agora é o chip principal — recebe os leads qualificados`
         : 'Nenhum chip principal: a IA atende até o fim em cada chip',
       () => setPulso((n) => n + 1),
+    );
+  }
+
+  function abrirRenomear(numero: NumeroWhatsapp) {
+    setNovoApelido(numero.apelido);
+    setRenomeando(numero);
+  }
+
+  /** Só o nome muda: instância, conversas e campanhas seguem ligadas ao chip. */
+  async function renomear() {
+    if (!renomeando || !novoApelido.trim()) return;
+    const nome = novoApelido.trim();
+    await executar(
+      () => supabase.from('numeros_whatsapp').update({ apelido: nome }).eq('id', renomeando.id),
+      `Chip renomeado para "${nome}"`,
+      () => {
+        setRenomeando(null);
+        setPulso((n) => n + 1);
+      },
     );
   }
 
@@ -860,7 +882,16 @@ function Numeros() {
               return (
                 <div key={item.id}>
                   <span className="apelido-chip">
-                    {item.apelido}
+                    <span className="apelido-texto">{item.apelido}</span>
+                    <button
+                      type="button"
+                      className="renomear-chip"
+                      onClick={() => abrirRenomear(item)}
+                      aria-label={`Renomear ${item.apelido}`}
+                      title="Renomear"
+                    >
+                      <Pencil size={13} />
+                    </button>
                     <em className={principal ? 'funcao-principal' : 'funcao-disparo'}>
                       {principal ? 'Principal' : 'Disparo'}
                     </em>
@@ -944,6 +975,26 @@ function Numeros() {
             min={1}
             value={limite}
             onChange={(e) => setLimite(Number(e.target.value))}
+          />
+        </Campo>
+      </Modal>
+
+      <Modal
+        titulo="Renomear chip"
+        descricao="O nome aparece na caixa de entrada, nas campanhas e em cada mensagem enviada."
+        aberto={Boolean(renomeando)}
+        aoFechar={() => setRenomeando(null)}
+        aoConfirmar={renomear}
+        rotuloConfirmar="Salvar"
+        salvando={ocupado}
+      >
+        <Campo rotulo="Nome do chip">
+          <input
+            value={novoApelido}
+            onChange={(e) => setNovoApelido(e.target.value)}
+            placeholder="Envio 01"
+            maxLength={60}
+            required
           />
         </Campo>
       </Modal>

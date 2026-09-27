@@ -83,6 +83,8 @@ export const whatsapp = {
       '/api/whatsapp/principal',
       { corpo: entrada },
     ),
+  controlarCampanha: (campanhaId: string, acao: 'pausar' | 'retomar') =>
+    chamar<{ ok: true }>('/api/whatsapp/campanha', { corpo: { campanhaId, acao } }),
   dispararCampanha: (campanhaId: string) =>
     chamar<{ ok: true; enviados: number; ignorados: number }>('/api/whatsapp/disparar', {
       corpo: { campanhaId },
