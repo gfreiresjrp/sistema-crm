@@ -1,6 +1,8 @@
 import { anonimo, chaveWebhook, segredo } from '@/lib/servidor/banco';
 import { responderConversa } from '@/lib/servidor/assistente';
 import { lerFuncao } from '@/lib/servidor/funcao-chip';
+import { horariosLivres } from '@/lib/servidor/agenda';
+import { clienteDoRobo } from '@/lib/servidor/robo';
 import { variavel, variaveisPresentes } from '@/lib/servidor/ambiente';
 
 /**
@@ -51,6 +53,12 @@ export async function GET(req: Request) {
       if (token) {
         passos.funcao = await lerFuncao(token).catch((e) => `erro: ${String(e)}`);
         passos.resultado = await responderConversa(conversa, token, '0', { simular: true });
+        // Os primeiros horários livres, para conferir o que a IA oferece.
+        const clinicaId = typeof passos.funcao === 'object' ? (passos.funcao as { clinicaId?: string }).clinicaId : null;
+        const robo = clinicaId ? await clienteDoRobo(clinicaId) : null;
+        passos.agenda = robo
+          ? (await horariosLivres(robo, { clinicaId: clinicaId!, fuso: 'America/Sao_Paulo', limite: 12 })).map((h) => h.rotulo)
+          : 'sem login da IA';
       }
     } catch (e) {
       passos.erro = e instanceof Error ? e.message : String(e);
