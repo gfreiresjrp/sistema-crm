@@ -5,9 +5,10 @@ import {
   ArrowLeft,
   Bot,
   Check,
+  ChevronDown,
+  Megaphone,
   MessageCircle,
   PanelRight,
-  Megaphone,
   Plus,
   Smartphone,
   Sparkles,
@@ -208,8 +209,72 @@ export function PainelConversas({ busca }: { busca: string }) {
         ? 'atendendo'
         : 'aguardando';
 
+  /**
+   * Cada chip atende a própria carteira de contatos, como uma conta separada
+   * do WhatsApp. O seletor no topo da lista escolhe de qual número se está
+   * falando; a lista mostra só as conversas dele, e as respostas saem por ele.
+   * A escolha fica guardada neste navegador para não voltar a "todos" a cada
+   * recarga.
+   */
+  const [chipFiltro, setChipFiltroEstado] = useState('');
+  // Lido depois de montar: no servidor não há localStorage, e ler no
+  // inicializador faria o HTML do servidor divergir do primeiro render.
+  useEffect(() => {
+    try {
+      const salvo = localStorage.getItem('conversas:chip');
+      if (salvo) setChipFiltroEstado(salvo);
+    } catch {
+      // Sem armazenamento: começa em "todos os números".
+    }
+  }, []);
+  function setChipFiltro(valor: string) {
+    setChipFiltroEstado(valor);
+    setConversaId(null);
+    try {
+      localStorage.setItem('conversas:chip', valor);
+    } catch {
+      // Sem armazenamento (aba anônima): a escolha vale só nesta visita.
+    }
+  }
+
+  const chips = useConsulta<ChipDaClinica[]>(
+    clinicaId
+      ? () =>
+          supabase
+            .from('numeros_whatsapp')
+            .select('id, apelido, numero, status')
+            .eq('clinica_id', clinicaId)
+            .eq('ativo', true)
+            .order('apelido')
+      : null,
+    [clinicaId], [pulso],
+  );
+
+  // A view da caixa de entrada não traz o chip; ele vem da própria conversa.
+  const chipsDasConversas = useConsulta<Array<{ id: string; numero_whatsapp_id: string | null }>>(
+    clinicaId
+      ? () =>
+          supabase
+            .from('conversas')
+            .select('id, numero_whatsapp_id')
+            .eq('clinica_id', clinicaId)
+            .neq('status', 'arquivada')
+      : null,
+    [clinicaId], [pulso],
+  );
+
+  const chipDe = new Map(
+    (chipsDasConversas.dados ?? []).map((c) => [c.id, c.numero_whatsapp_id]),
+  );
+  const nomeDoChip = new Map((chips.dados ?? []).map((c) => [c.id, c.apelido]));
+  // Um chip que saiu da lista (excluído, desativado) não pode deixar a caixa vazia.
+  const chipValido = chipFiltro && nomeDoChip.has(chipFiltro) ? chipFiltro : '';
+
   const termo = busca.trim().toLowerCase();
-  const visiveis = (caixa.dados ?? []).filter((linha) =>
+  const doChip = (caixa.dados ?? []).filter(
+    (linha) => !chipValido || chipDe.get(linha.conversa_id) === chipValido,
+  );
+  const visiveis = doChip.filter((linha) =>
     termo
       ? `${linha.nome_completo ?? ''} ${linha.telefone ?? ''} ${(linha.etiquetas ?? []).join(' ')}`
           .toLowerCase()
@@ -238,54 +303,6 @@ export function PainelConversas({ busca }: { busca: string }) {
       : null,
     [abertaId], [pulso],
   );
-
-  /**
-   * Os números da clínica e o que atende a conversa aberta.
-   *
-   * A conversa guarda o chip em `numero_whatsapp_id`, e é por ele que sai
-   * toda mensagem digitada aqui. Antes isso ficava invisível: não havia como
-   * saber de qual número a resposta tinha saído.
-   */
-  const chips = useConsulta<ChipDaClinica[]>(
-    clinicaId
-      ? () =>
-          supabase
-            .from('numeros_whatsapp')
-            .select('id, apelido, numero, status')
-            .eq('clinica_id', clinicaId)
-            .eq('ativo', true)
-            .order('apelido')
-      : null,
-    [clinicaId], [pulso],
-  );
-
-  const chipDaConversa = useConsulta<{ numero_whatsapp_id: string | null } | null>(
-    abertaId
-      ? () =>
-          supabase
-            .from('conversas')
-            .select('numero_whatsapp_id')
-            .eq('id', abertaId)
-            .maybeSingle()
-      : null,
-    [abertaId], [pulso],
-  );
-
-  const nomeDoChip = new Map((chips.dados ?? []).map((c) => [c.id, c.apelido]));
-  const chipAtualId = chipDaConversa.dados?.numero_whatsapp_id ?? '';
-
-  async function trocarChip(numeroId: string) {
-    if (!atual || !numeroId || numeroId === chipAtualId) return;
-    await executar(
-      () =>
-        supabase
-          .from('conversas')
-          .update({ numero_whatsapp_id: numeroId })
-          .eq('id', atual.conversa_id),
-      `Respostas desta conversa saem por "${nomeDoChip.get(numeroId) ?? 'número escolhido'}"`,
-      () => setPulso((n) => n + 1),
-    );
-  }
 
   useEffect(() => {
     if (!abertaId || abertaNaoLidas <= 0) return;
@@ -422,6 +439,7 @@ export function PainelConversas({ busca }: { busca: string }) {
           }
         />
         <ModalNovaConversa
+          numeroId={chipValido}
           aberto={modalAberto}
           aoFechar={() => setModalAberto(false)}
           aoCriar={(id) => {
@@ -444,31 +462,56 @@ export function PainelConversas({ busca }: { busca: string }) {
       {/* ------------------------------------------------------------ lista */}
       <div className="caixa-lista">
         <header className="lista-topo">
-          <div className="list-tabs">
-            {(
-              [
-                ['aguardando', 'Aguardando'],
-                ['atendendo', 'Atendendo'],
-                ['finalizadas', 'Finalizadas'],
-              ] as const
-            ).map(([chave, rotulo]) => (
-              <button
-                key={chave}
-                className={aba === chave ? 'active' : ''}
-                onClick={() => setAba(chave)}
-              >
-                {rotulo}
-                {quantos(chave) > 0 && <em>{quantos(chave)}</em>}
-              </button>
-            ))}
+          <label className="seletor-chip-lista">
+            <Smartphone size={15} />
+            <select
+              value={chipValido}
+              onChange={(e) => setChipFiltro(e.target.value)}
+              aria-label="Número de WhatsApp cujas conversas aparecem na lista"
+            >
+              <option value="">Todos os números</option>
+              {(chips.dados ?? []).map((chip) => (
+                <option key={chip.id} value={chip.id}>
+                  {chip.apelido}
+                  {chip.status === 'conectado'
+                    ? ''
+                    : ` (${ROTULO_STATUS_CHIP[chip.status] ?? chip.status})`}
+                </option>
+              ))}
+            </select>
+            <ChevronDown size={14} />
+          </label>
+
+          <div className="lista-abas">
+            <div className="list-tabs" role="tablist">
+              {(
+                [
+                  ['aguardando', 'Aguardando'],
+                  ['atendendo', 'Atendendo'],
+                  ['finalizadas', 'Finalizadas'],
+                ] as const
+              ).map(([chave, rotulo]) => (
+                <button
+                  key={chave}
+                  role="tab"
+                  aria-selected={aba === chave}
+                  className={aba === chave ? 'active' : ''}
+                  onClick={() => setAba(chave)}
+                >
+                  <span>{rotulo}</span>
+                  {quantos(chave) > 0 && <em>{quantos(chave)}</em>}
+                </button>
+              ))}
+            </div>
+            <button
+              className="botao-icone"
+              onClick={() => setModalAberto(true)}
+              aria-label="Nova conversa"
+              title="Nova conversa"
+            >
+              <Plus size={16} />
+            </button>
           </div>
-          <button
-            className="botao-icone"
-            onClick={() => setModalAberto(true)}
-            aria-label="Nova conversa"
-          >
-            <Plus size={16} />
-          </button>
         </header>
 
         <div className="conversation-list">
@@ -559,29 +602,12 @@ export function PainelConversas({ busca }: { busca: string }) {
               </div>
 
               <div className="chat-acoes">
-                <label className="seletor-chip" title="Número de WhatsApp que envia as mensagens desta conversa">
-                  <Smartphone size={14} />
-                  <select
-                    value={chipAtualId}
-                    disabled={ocupado || chipDaConversa.carregando}
-                    onChange={(e) => trocarChip(e.target.value)}
-                    aria-label="Número que envia as mensagens desta conversa"
-                  >
-                    {!chipAtualId && <option value="">Escolher número</option>}
-                    {(chips.dados ?? []).map((chip) => (
-                      <option
-                        key={chip.id}
-                        value={chip.id}
-                        disabled={chip.status !== 'conectado' && chip.id !== chipAtualId}
-                      >
-                        {chip.apelido}
-                        {chip.status === 'conectado'
-                          ? ''
-                          : ` (${ROTULO_STATUS_CHIP[chip.status] ?? chip.status})`}
-                      </option>
-                    ))}
-                  </select>
-                </label>
+                {chipDe.get(atual.conversa_id) && (
+                  <span className="selo-chip" title="Número que atende esta conversa">
+                    <Smartphone size={13} />
+                    {nomeDoChip.get(chipDe.get(atual.conversa_id)!) ?? 'Número removido'}
+                  </span>
+                )}
                 <button className="secondary-btn" onClick={alternarAtendimento} disabled={ocupado}>
                   {atual.ia_ativa ? 'Assumir conversa' : 'Devolver para a IA'}
                 </button>
@@ -688,6 +714,7 @@ export function PainelConversas({ busca }: { busca: string }) {
       )}
 
       <ModalNovaConversa
+        numeroId={chipValido}
         aberto={modalAberto}
         aoFechar={() => setModalAberto(false)}
         aoCriar={(id) => {
@@ -701,10 +728,13 @@ export function PainelConversas({ busca }: { busca: string }) {
 }
 
 function ModalNovaConversa({
+  numeroId,
   aberto,
   aoFechar,
   aoCriar,
 }: {
+  /** Chip escolhido no topo da lista; a conversa nova nasce nele. */
+  numeroId: string;
   aberto: boolean;
   aoFechar: () => void;
   aoCriar: (conversaId: string) => void;
@@ -751,6 +781,7 @@ function ModalNovaConversa({
             unidade_id: unidadeId,
             paciente_id: id,
             canal: 'whatsapp',
+            numero_whatsapp_id: numeroId || null,
           })
           .select('id')
           .single();

@@ -34,40 +34,97 @@
 
 .lista-topo {
   display: flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  gap: 8px;
   padding: 10px 12px;
   border-bottom: 1px solid var(--line);
 }
 
+/* Qual chip está sendo atendido: fica acima de tudo, porque muda a lista inteira. */
+.seletor-chip-lista {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 36px;
+  padding: 0 10px;
+  color: var(--gold-tinta);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  cursor: pointer;
+}
+
+.seletor-chip-lista:focus-within {
+  border-color: var(--gold-line);
+}
+
+.seletor-chip-lista select {
+  flex: 1;
+  min-width: 0;
+  height: 100%;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  background: transparent;
+  border: 0;
+  outline: none;
+  appearance: none;
+  cursor: pointer;
+  text-overflow: ellipsis;
+}
+
+.seletor-chip-lista > svg:last-child {
+  flex-shrink: 0;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.lista-abas {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .list-tabs {
   display: flex;
-  gap: 3px;
   flex: 1;
+  min-width: 0;
+  gap: 2px;
   padding: 3px;
   background: var(--surface-2);
   border-radius: 9px;
 }
 
-/* Três abas numa coluna estreita: o rótulo não pode quebrar em duas linhas. */
+/*
+ * Cada aba ocupa o espaço do próprio rótulo. Com larguras iguais, "Aguardando"
+ * + contador não cabia no terço dele e vazava para fora da trilha.
+ */
 .list-tabs button {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
-  flex: 1;
-  min-width: 0;
   justify-content: center;
-  padding: 6px 4px;
+  gap: 5px;
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 30px;
+  padding: 0 8px;
   font-family: inherit;
-  font-size: 11.5px;
-  white-space: nowrap;
+  font-size: 12px;
   font-weight: 500;
+  white-space: nowrap;
   color: var(--text-2);
   background: transparent;
   border: 0;
   border-radius: 7px;
   cursor: pointer;
   transition: all 0.15s ease;
+}
+
+.list-tabs button span {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .list-tabs button:hover {
@@ -82,13 +139,22 @@
 
 .list-tabs em {
   flex-shrink: 0;
-  padding: 0 5px;
+  min-width: 18px;
+  padding: 1px 5px;
   font-size: 10px;
+  line-height: 14px;
   font-style: normal;
   font-weight: 600;
+  text-align: center;
   color: var(--on-gold);
   background: var(--gold);
   border-radius: 999px;
+}
+
+.lista-abas .botao-icone {
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
 }
 
 .conversation-list {
@@ -3040,37 +3106,23 @@ textarea.prompt {
 }
 
 /* ------------------------------------------------ chip da conversa aberta */
-.seletor-chip {
+.selo-chip {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 0 8px;
+  gap: 5px;
   height: 32px;
+  padding: 0 10px;
+  font-size: 12px;
+  font-weight: 500;
   color: var(--gold-tinta);
-  background: var(--surface);
-  border: 1px solid var(--line);
+  white-space: nowrap;
+  background: var(--surface-2);
   border-radius: 8px;
 }
 
-.seletor-chip select {
-  max-width: 250px;
-  font: inherit;
-  font-size: 12.5px;
-  color: var(--text);
-  background: transparent;
-  border: 0;
-  outline: none;
-  cursor: pointer;
-}
-
 @media (max-width: 860px) {
-  .seletor-chip {
-    flex: 1 1 100%;
-  }
-
-  .seletor-chip select {
-    max-width: none;
-    width: 100%;
+  .selo-chip {
+    margin-right: auto;
   }
 }
 
