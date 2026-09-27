@@ -462,47 +462,26 @@ export function PainelConversas({ busca }: { busca: string }) {
       {/* ------------------------------------------------------------ lista */}
       <div className="caixa-lista">
         <header className="lista-topo">
-          <label className="seletor-chip-lista">
-            <Smartphone size={15} />
-            <select
-              value={chipValido}
-              onChange={(e) => setChipFiltro(e.target.value)}
-              aria-label="Número de WhatsApp cujas conversas aparecem na lista"
-            >
-              <option value="">Todos os números</option>
-              {(chips.dados ?? []).map((chip) => (
-                <option key={chip.id} value={chip.id}>
-                  {chip.apelido}
-                  {chip.status === 'conectado'
-                    ? ''
-                    : ` (${ROTULO_STATUS_CHIP[chip.status] ?? chip.status})`}
-                </option>
-              ))}
-            </select>
-            <ChevronDown size={14} />
-          </label>
-
-          <div className="lista-abas">
-            <div className="list-tabs" role="tablist">
-              {(
-                [
-                  ['aguardando', 'Aguardando'],
-                  ['atendendo', 'Atendendo'],
-                  ['finalizadas', 'Finalizadas'],
-                ] as const
-              ).map(([chave, rotulo]) => (
-                <button
-                  key={chave}
-                  role="tab"
-                  aria-selected={aba === chave}
-                  className={aba === chave ? 'active' : ''}
-                  onClick={() => setAba(chave)}
-                >
-                  <span>{rotulo}</span>
-                  {quantos(chave) > 0 && <em>{quantos(chave)}</em>}
-                </button>
-              ))}
-            </div>
+          <div className="lista-linha-chip">
+            <label className="seletor-chip-lista">
+              <Smartphone size={15} />
+              <select
+                value={chipValido}
+                onChange={(e) => setChipFiltro(e.target.value)}
+                aria-label="Número de WhatsApp cujas conversas aparecem na lista"
+              >
+                <option value="">Todos os números</option>
+                {(chips.dados ?? []).map((chip) => (
+                  <option key={chip.id} value={chip.id}>
+                    {chip.apelido}
+                    {chip.status === 'conectado'
+                      ? ''
+                      : ` (${ROTULO_STATUS_CHIP[chip.status] ?? chip.status})`}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown size={14} />
+            </label>
             <button
               className="botao-icone"
               onClick={() => setModalAberto(true)}
@@ -511,6 +490,27 @@ export function PainelConversas({ busca }: { busca: string }) {
             >
               <Plus size={16} />
             </button>
+          </div>
+
+          <div className="list-tabs" role="tablist">
+            {(
+              [
+                ['aguardando', 'Aguardando'],
+                ['atendendo', 'Atendendo'],
+                ['finalizadas', 'Finalizadas'],
+              ] as const
+            ).map(([chave, rotulo]) => (
+              <button
+                key={chave}
+                role="tab"
+                aria-selected={aba === chave}
+                className={aba === chave ? 'active' : ''}
+                onClick={() => setAba(chave)}
+              >
+                <span>{rotulo}</span>
+                {quantos(chave) > 0 && <em>{quantos(chave)}</em>}
+              </button>
+            ))}
           </div>
         </header>
 

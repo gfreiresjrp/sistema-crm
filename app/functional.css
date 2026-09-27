@@ -43,6 +43,8 @@
 /* Qual chip está sendo atendido: fica acima de tudo, porque muda a lista inteira. */
 .seletor-chip-lista {
   position: relative;
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -81,7 +83,7 @@
   pointer-events: none;
 }
 
-.lista-abas {
+.lista-linha-chip {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -89,7 +91,6 @@
 
 .list-tabs {
   display: flex;
-  flex: 1;
   min-width: 0;
   gap: 2px;
   padding: 3px;
@@ -151,7 +152,7 @@
   border-radius: 999px;
 }
 
-.lista-abas .botao-icone {
+.lista-linha-chip .botao-icone {
   flex-shrink: 0;
   width: 36px;
   height: 36px;
