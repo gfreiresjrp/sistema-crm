@@ -171,6 +171,16 @@ export async function configurarWebhook(token: string, url: string): Promise<unk
   });
 }
 
+/** Marca a conversa como lida: o contato vê os dois tiques azuis. */
+export async function marcarComoLido(token: string, numero: string): Promise<unknown> {
+  const jid = numero.includes('@') ? numero : `${numero}@s.whatsapp.net`;
+  return chamar('/chat/read', { corpo: { number: jid, read: true }, token });
+}
+
+/**
+ * Envia texto. `atraso` (ms) segura o envio mostrando "digitando..." para o
+ * contato durante esse tempo — é o que a UazApi faz com `delay`.
+ */
 export async function enviarTexto(
   token: string,
   destino: string,

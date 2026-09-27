@@ -2,7 +2,7 @@ import { moeda } from '@/lib/dados/formato';
 import { anonimo, segredo } from './banco';
 import { lerFuncao } from './funcao-chip';
 import { gerarResposta, type Fala } from './openai';
-import { enviarTexto, estaConectado, statusInstancia } from './uazapi';
+import { enviarTexto, estaConectado, marcarComoLido, statusInstancia } from './uazapi';
 
 /**
  * A assistente que responde os pacientes no WhatsApp.
@@ -186,6 +186,23 @@ async function principalDisponivel(
   }
 }
 
+/**
+ * O ritmo de uma pessoa, não de um robô.
+ *
+ * Resposta em um segundo denuncia a automação e assusta o lead. A IA espera
+ * um pouco, marca como vista, e digita por um tempo proporcional ao tamanho
+ * do texto (com "digitando..." aparecendo para o contato). O total fica abaixo
+ * de ~20 s porque o trabalho roda em `waitUntil`, que o Workers mantém vivo por
+ * até 30 s depois da resposta ao webhook.
+ */
+const esperar = (ms: number) => new Promise((pronto) => setTimeout(pronto, ms));
+const entre = (min: number, max: number) => min + Math.random() * (max - min);
+
+function tempoDigitando(texto: string): number {
+  // ~35 caracteres por segundo no celular, entre 3 e 11 segundos.
+  return Math.round(Math.min(11000, Math.max(3000, (texto.length / 35) * 1000 + entre(0, 1500))));
+}
+
 export type ResultadoAssistente =
   | { respondeu: true; texto: string; passouParaPrincipal: boolean }
   | { respondeu: false; motivo: string };
@@ -244,6 +261,14 @@ export async function responderConversa(
     return { respondeu: false, motivo: 'lead já passado para o chip principal' };
   }
 
+  // Um instante para "pegar o celular", e o visto.
+  if (!opcoes?.simular) {
+    await esperar(entre(2000, 4500));
+    await marcarComoLido(token, telefone).catch(() => {
+      // Sem o visto a resposta ainda precisa sair.
+    });
+  }
+
   const prompt = montarPrompt(contexto);
   if (!prompt.trim()) return { respondeu: false, motivo: 'prompt vazio' };
 
@@ -293,7 +318,7 @@ export async function responderConversa(
     };
   }
 
-  const enviada = await enviarTexto(token, telefone, texto);
+  const enviada = await enviarTexto(token, telefone, texto, tempoDigitando(texto));
   const idExterno = enviada?.id ?? enviada?.messageid ?? enviada?.key?.id ?? null;
 
   await servidor.rpc('wa_registrar_resposta_ia', {
@@ -310,7 +335,15 @@ export async function responderConversa(
    * leva a conversa para o principal, que é onde a equipe está olhando.
    */
   const abertura = mensagemDaPassagem(contexto, decisao.interesse);
-  const saida = await enviarTexto(principal.token, telefone, abertura);
+  // Quem assume é uma pessoa: um respiro antes, e digitando.
+  // O teto de 6 s na digitação mantém a passagem inteira dentro dos 30 s.
+  await esperar(entre(1500, 2500));
+  const saida = await enviarTexto(
+    principal.token,
+    telefone,
+    abertura,
+    Math.min(6000, tempoDigitando(abertura)),
+  );
   await servidor.rpc('wa_registrar_mensagem', {
     p_segredo: chave,
     p_instancia: principal.instancia,

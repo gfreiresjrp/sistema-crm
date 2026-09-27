@@ -85,6 +85,11 @@ export const whatsapp = {
     ),
   controlarCampanha: (campanhaId: string, acao: 'pausar' | 'retomar') =>
     chamar<{ ok: true }>('/api/whatsapp/campanha', { corpo: { campanhaId, acao } }),
+  escutarAgendamento: (conversaId: string) =>
+    chamar<{ acao: 'nenhuma' | 'criado' | 'remarcado'; motivo?: string; inicio?: string }>(
+      '/api/whatsapp/escuta',
+      { corpo: { conversaId } },
+    ),
   dispararCampanha: (campanhaId: string) =>
     chamar<{ ok: true; enviados: number; ignorados: number }>('/api/whatsapp/disparar', {
       corpo: { campanhaId },

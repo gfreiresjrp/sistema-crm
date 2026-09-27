@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   Bot,
@@ -66,7 +66,13 @@ type Mensagem = {
   criado_em: string;
 };
 
-type ChipDaClinica = { id: string; apelido: string; numero: string | null; status: string };
+type ChipDaClinica = {
+  id: string;
+  apelido: string;
+  numero: string | null;
+  status: string;
+  peso_rotacao: number;
+};
 
 export function PainelConversas({ busca }: { busca: string }) {
   const { clinicaId, unidadeId, membroId } = useClinica();
@@ -242,7 +248,7 @@ export function PainelConversas({ busca }: { busca: string }) {
       ? () =>
           supabase
             .from('numeros_whatsapp')
-            .select('id, apelido, numero, status')
+            .select('id, apelido, numero, status, peso_rotacao')
             .eq('clinica_id', clinicaId)
             .eq('ativo', true)
             .order('apelido')
@@ -300,12 +306,73 @@ export function PainelConversas({ busca }: { busca: string }) {
     })();
   }, [chipsDasConversas.dados]);
 
-  const chipDe = new Map(
-    (chipsDasConversas.dados ?? []).map((c) => [c.id, c.numero_whatsapp_id]),
+  const chipDe = useMemo(
+    () => new Map((chipsDasConversas.dados ?? []).map((c) => [c.id, c.numero_whatsapp_id])),
+    [chipsDasConversas.dados],
   );
   const nomeDoChip = new Map((chips.dados ?? []).map((c) => [c.id, c.apelido]));
   // Um chip que saiu da lista (excluído, desativado) não pode deixar a caixa vazia.
   const chipValido = chipFiltro && nomeDoChip.has(chipFiltro) ? chipFiltro : '';
+
+  /**
+   * A IA escutando o chip principal.
+   *
+   * Ali quem conversa é a atendente e a IA não responde; mas quando chega
+   * mensagem nova numa conversa do principal, a IA lê e, se a atendente fechou
+   * um horário, põe na agenda. A primeira carga só registra o estado: escutar
+   * tudo ao abrir a tela repetiria conversas antigas.
+   */
+  const principalIds = useMemo(
+    () => new Set((chips.dados ?? []).filter((c) => c.peso_rotacao === 0).map((c) => c.id)),
+    [chips.dados],
+  );
+  const ultimaVistaPorConversa = useRef<Map<string, string> | null>(null);
+  const escutaPendente = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  useEffect(() => {
+    const linhas = caixa.dados ?? [];
+    if (!linhas.length || !chipsDasConversas.dados || !chips.dados) return;
+
+    const anterior = ultimaVistaPorConversa.current;
+    const atual = new Map(linhas.map((l) => [l.conversa_id, l.ultima_mensagem_em ?? '']));
+    ultimaVistaPorConversa.current = atual;
+    if (!anterior) return;
+
+    for (const [conversa, quando] of atual) {
+      if (!quando || anterior.get(conversa) === quando) continue;
+      const chip = chipDe.get(conversa);
+      if (!chip || !principalIds.has(chip)) continue;
+
+      // Espera a conversa assentar (a atendente costuma mandar em rajada) e
+      // desencontra abas abertas ao mesmo tempo, para não agendar duas vezes.
+      clearTimeout(escutaPendente.current.get(conversa));
+      escutaPendente.current.set(
+        conversa,
+        setTimeout(() => {
+          escutaPendente.current.delete(conversa);
+          void whatsapp
+            .escutarAgendamento(conversa)
+            .then((r) => {
+              if (r.acao === 'nenhuma' || !r.inicio) return;
+              const quandoFica = new Date(r.inicio).toLocaleString('pt-BR', {
+                weekday: 'short',
+                day: '2-digit',
+                month: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+              });
+              avisar(
+                r.acao === 'criado'
+                  ? `A IA agendou pela conversa: ${quandoFica}`
+                  : `A IA remarcou pela conversa: ${quandoFica}`,
+              );
+            })
+            .catch(() => {
+              // A escuta é um atalho; sem ela a atendente agenda pela Agenda.
+            });
+        }, 4000 + Math.random() * 4000),
+      );
+    }
+  }, [caixa.dados, chipsDasConversas.dados, chips.dados, chipDe, principalIds, avisar]);
 
   const termo = busca.trim().toLowerCase();
   const doChip = (caixa.dados ?? []).filter(

@@ -58,5 +58,14 @@ export async function GET(req: Request) {
     simulacao = passos;
   }
 
-  return Response.json({ variaveis, openai, simulacao });
+  // A IA roda depois da resposta ao webhook; sem `waitUntil` ela seria cortada.
+  let segundoPlano = 'indisponível';
+  try {
+    const modulo = (await import('cloudflare:workers')) as { waitUntil?: unknown };
+    if (typeof modulo.waitUntil === 'function') segundoPlano = 'waitUntil';
+  } catch {
+    // Fora do Workers.
+  }
+
+  return Response.json({ variaveis, openai, segundoPlano, simulacao });
 }
