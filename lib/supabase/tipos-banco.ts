@@ -623,6 +623,7 @@ export type Database = {
           maximo_parcelas: number
           mensagem_apresentacao: string
           modelo_ia: string
+          oferece_horarios: boolean
           nome_assistente: string
           prompt_sistema: string | null
           quebra_objecoes: boolean
@@ -647,6 +648,7 @@ export type Database = {
           maximo_parcelas?: number
           mensagem_apresentacao?: string
           modelo_ia?: string
+          oferece_horarios?: boolean
           nome_assistente?: string
           prompt_sistema?: string | null
           quebra_objecoes?: boolean
@@ -671,6 +673,7 @@ export type Database = {
           maximo_parcelas?: number
           mensagem_apresentacao?: string
           modelo_ia?: string
+          oferece_horarios?: boolean
           nome_assistente?: string
           prompt_sistema?: string | null
           quebra_objecoes?: boolean

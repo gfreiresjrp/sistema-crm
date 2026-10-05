@@ -38,6 +38,7 @@ type Contexto = {
     silencio_inicio: string | null;
     silencio_fim: string | null;
     escalar_para_humano_apos: number | null;
+    oferece_horarios?: boolean;
   } | null;
   paciente: { nome: string; telefone: string; interesse: string | null; situacao: string } | null;
   procedimentos: Array<{
@@ -135,8 +136,11 @@ function instrucoesDeResposta(entrada: {
   livres: HorarioLivre[] | null;
   temPrincipal: boolean;
   campanha: CampanhaDoLead | null;
+  ofereceHorarios: boolean;
 }): string {
   const venda = entrada.campanha?.modo === 'venda';
+  // Sem a opção ligada, quem marca é a equipe: a IA só colhe a data que a pessoa prefere.
+  const semAgenda = !venda && !entrada.ofereceHorarios;
   // Agrupa por dia: "terça-feira, 30/09: 9h=2026-09-30T09:00, 10h=…".
   const porDia = new Map<string, string[]>();
   for (const h of entrada.livres ?? []) {
@@ -168,7 +172,12 @@ Tipo: ${venda ? 'VENDA DIRETA de produto — o objetivo é a pessoa comprar, nã
 `
     : '';
 
-  const regrasAgenda = venda
+  const regrasAgenda = semAgenda
+    ? `AGENDAMENTO
+- NUNCA ofereça, sugira nem invente dias, datas ou horários. Você não tem acesso à agenda: quem marca é a responsável da clínica.
+- Quando a pessoa quiser agendar, ou ainda tiver alguma dúvida, diga que vai encaminhar para a nossa responsável agendar uma avaliação personalizada e pergunte qual data ela poderia.
+- Se ela disser uma data ou período, não confirme horário: diga que a responsável vai entrar em contato para confirmar.`
+    : venda
     ? `VENDA
 - Esta campanha é de venda direta: apresente o produto, tire dúvidas e conduza para a compra. Não ofereça avaliação nem horário, a menos que a pessoa peça.
 - Nunca invente preço, condição, prazo ou link: use só o que estiver nas instruções da campanha ou no catálogo. Se não estiver, diga que a equipe passa essa informação.`
@@ -185,6 +194,12 @@ ${agenda}
       ? `- "qualificado": true quando a pessoa disse que quer comprar, perguntou como pagar ou fechar, ou pediu para falar com alguém da equipe. Curiosidade vaga, "só estou olhando", resposta negativa ou pedido para parar de receber mensagens NÃO qualificam.
 Quando "qualificado" for true, a "mensagem" deve, curta e natural, avisar que uma especialista vai finalizar a compra com ela em instantes pelo número oficial da clínica.`
       : `- "qualificado": sempre false.`
+    : semAgenda
+    ? entrada.temPrincipal
+      ? `- "qualificado": true quando a pessoa disse a data ou o período em que pode vir, ou pediu para agendar a avaliação, ou pediu para falar com alguém da equipe. Curiosidade vaga, "só estou olhando", resposta negativa ou pedido para parar de receber mensagens NÃO qualificam.
+Quando "qualificado" for true, a "mensagem" deve, curta e natural, agradecer e avisar que a nossa responsável vai continuar o atendimento em instantes pelo número oficial da clínica para agendar a avaliação personalizada. Não diga "agendado" nem "confirmado" e não cite valores.`
+      : `- "qualificado": sempre false.
+Quando a pessoa disser a data em que pode vir, a "mensagem" deve dizer que a nossa responsável vai entrar em contato para confirmar a avaliação (não diga "agendado" nem "confirmado").`
     : entrada.temPrincipal
     ? `- "qualificado": true quando a pessoa escolheu um horário da lista, ou pediu para falar com alguém da equipe, ou quer fechar e só falta combinar valores. Curiosidade vaga, "só estou olhando", resposta negativa ou pedido para parar de receber mensagens NÃO qualificam.
 Quando "qualificado" for true, a "mensagem" deve, curta e natural, dizer que o horário escolhido (se houver) ficou separado — quem confirma é a equipe, então não diga "agendado" nem "confirmado" — e avisar que uma especialista vai continuar o atendimento em instantes pelo número oficial da clínica. Não cite valores nesse caso.`
@@ -203,7 +218,7 @@ Responda sempre com um objeto JSON, sem nada fora dele:
 - "mensagem": o texto que vai para o WhatsApp do contato, seguindo todas as regras acima.
 ${regrasPassagem}
 - "interesse": o procedimento, produto ou assunto que a pessoa quer, em poucas palavras (ex.: "harmonização facial"). Vazio se ainda não souber.
-- "horario": o código do horário que a pessoa escolheu nesta conversa, ou vazio.`;
+- "horario": ${semAgenda ? 'sempre vazio.' : 'o código do horário que a pessoa escolheu nesta conversa, ou vazio.'}`;
 }
 
 type Decisao = { mensagem: string; qualificado: boolean; interesse: string; horario: string };
@@ -403,9 +418,10 @@ export async function responderConversa(
   // A agenda de verdade, pelo login da IA na clínica (ver robo.ts).
   const robo = funcao.clinicaId ? await clienteDoRobo(funcao.clinicaId).catch(() => null) : null;
   const campanha = robo ? await campanhaDoLead(robo, conversaId).catch(() => null) : null;
-  // Campanha de venda não oferece horário: nem precisa ler a agenda.
+  // Campanha de venda, ou clínica que não quer horário sugerido: nem lê a agenda.
+  const ofereceHorarios = c.oferece_horarios === true;
   const livres =
-    robo && funcao.clinicaId && campanha?.modo !== 'venda'
+    robo && funcao.clinicaId && campanha?.modo !== 'venda' && ofereceHorarios
       ? await horariosLivres(robo, {
           clinicaId: funcao.clinicaId,
           fuso: contexto.fuso ?? 'America/Sao_Paulo',
@@ -416,7 +432,10 @@ export async function responderConversa(
 
   const temPrincipal = Boolean(funcao.principalId);
   const falas: Fala[] = [
-    { papel: 'system', texto: prompt + instrucoesDeResposta({ livres, temPrincipal, campanha }) },
+    {
+      papel: 'system',
+      texto: prompt + instrucoesDeResposta({ livres, temPrincipal, campanha, ofereceHorarios }),
+    },
     ...contexto.mensagens.map<Fala>((m) => ({
       papel: m.autor === 'paciente' ? 'user' : 'assistant',
       texto: m.conteudo,

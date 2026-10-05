@@ -38,6 +38,11 @@ const AUTOMACOES = [
   ['confirmacao_agenda', 'Confirmação de agenda', 'Confirmar automaticamente no dia anterior.'],
   ['followup_inteligente', 'Follow-up inteligente', 'Retomar em 1, 3 e 7 dias para quem não respondeu.'],
   ['transcreve_audio', 'Transcrição de áudio', 'Entender áudios enviados pelo paciente.'],
+  [
+    'oferece_horarios',
+    'Oferecer horários da agenda',
+    'Sugerir dias e horários livres. Desligado, a IA pergunta a data que a pessoa prefere e passa para a equipe marcar.',
+  ],
 ] as const;
 
 type ChaveAutomacao = (typeof AUTOMACOES)[number][0];
@@ -95,6 +100,7 @@ export function PainelIA() {
             confirmacao_agenda: rascunho.confirmacao_agenda,
             followup_inteligente: rascunho.followup_inteligente,
             transcreve_audio: rascunho.transcreve_audio,
+            oferece_horarios: rascunho.oferece_horarios,
             desconto_maximo_percentual: rascunho.desconto_maximo_percentual,
             valor_minimo_entrada: rascunho.valor_minimo_entrada,
             maximo_parcelas: rascunho.maximo_parcelas,
