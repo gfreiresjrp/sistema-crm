@@ -1,0 +1,67 @@
+# Backup diário dos dados do Supabase (o plano gratuito não tem backup).
+#
+# O esquema já está em supabase/migrations; aqui vão os DADOS: tudo do schema
+# public e os logins (auth.users e auth.identities). O arquivo sai
+# criptografado com a senha BACKUP_SENHA — o repositório é público e os
+# artefatos podem ser baixados por qualquer conta do GitHub.
+#
+# Segredos necessários (Settings › Secrets and variables › Actions):
+#   SUPABASE_DB_URL  string de conexão do Supabase (Connect › Session pooler)
+#   BACKUP_SENHA     senha para criptografar; guarde-a fora do GitHub
+#
+# Restaurar: baixar o artefato, `gpg -d banco.sql.gz.gpg | gunzip > banco.sql`
+# e aplicar com psql num projeto já com as migrations.
+
+name: Backup do banco
+
+on:
+  schedule:
+    - cron: '0 6 * * *' # 03h em Brasília
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  backup:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Conferir segredos
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_SENHA: ${{ secrets.BACKUP_SENHA }}
+        run: |
+          if [ -z "$SUPABASE_DB_URL" ] || [ -z "$BACKUP_SENHA" ]; then
+            echo "::error::Cadastre SUPABASE_DB_URL e BACKUP_SENHA em Settings › Secrets and variables › Actions."
+            exit 1
+          fi
+
+      - name: Exportar e criptografar
+        env:
+          SUPABASE_DB_URL: ${{ secrets.SUPABASE_DB_URL }}
+          BACKUP_SENHA: ${{ secrets.BACKUP_SENHA }}
+        run: |
+          set -o pipefail
+          # Duas passadas: o pg_dump ignora --schema quando há --table.
+          # --disable-triggers: na restauração, os gatilhos não podem recontar
+          # mensagens nem recriar perfis que já vêm no próprio backup.
+          {
+            docker run --rm postgres:17 pg_dump "$SUPABASE_DB_URL" \
+              --data-only --no-owner --no-privileges --disable-triggers \
+              --table='auth.users' --table='auth.identities'
+            docker run --rm postgres:17 pg_dump "$SUPABASE_DB_URL" \
+              --data-only --no-owner --no-privileges --disable-triggers \
+              --schema=public
+          } | gzip -9 \
+            | gpg --batch --yes --symmetric --cipher-algo AES256 \
+                  --passphrase "$BACKUP_SENHA" -o banco.sql.gz.gpg
+          ls -lh banco.sql.gz.gpg
+
+      - name: Guardar por 30 dias
+        uses: actions/upload-artifact@v4
+        with:
+          name: banco-${{ github.run_id }}
+          path: banco.sql.gz.gpg
+          retention-days: 30
+          if-no-files-found: error
