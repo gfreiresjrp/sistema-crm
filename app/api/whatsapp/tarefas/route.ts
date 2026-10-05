@@ -5,8 +5,8 @@ import { dispararLote, ErroDisparo } from '@/lib/servidor/disparo';
 import { clienteDoRobo } from '@/lib/servidor/robo';
 import { enviarTexto, listarMensagensDoDisparo } from '@/lib/servidor/uazapi';
 
-/** Na Vercel: folga para a IA terminar em segundo plano (`waitUntil`) depois da resposta. */
-export const maxDuration = 60;
+/** Na Vercel: a fila da IA roda dentro da rota (~40 s) depois das outras tarefas. */
+export const maxDuration = 90;
 
 /**
  * Roda as tarefas de fundo: lembretes, follow-ups e o acerto do funil.

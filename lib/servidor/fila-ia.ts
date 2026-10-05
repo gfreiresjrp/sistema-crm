@@ -8,6 +8,7 @@ import {
   enviarTexto,
   estaConectado,
   listarInstancias,
+  type ChatLead,
 } from './uazapi';
 
 /**
@@ -151,10 +152,60 @@ async function atenderPassagens(
   return relatorio;
 }
 
+/** Quantos leads o mesmo chip responde ao mesmo tempo. */
+const SIMULTANEOS = 3;
+
+/** Uma resposta inteira (OpenAI + "digitando..." + envio) cabe nisto. */
+const DURACAO_RESPOSTA = 20_000;
+
 /**
- * Atende a fila de um chip: um lead por vez, e no máximo o que cabe na
- * janela de ~25 s que o Workers dá ao trabalho em segundo plano. Um segundo
- * lead só começa se o primeiro terminou cedo.
+ * Responde um lead da fila.
+ *
+ * Antes de começar, empurra a hora dele para daqui a 3 min: é a trava que
+ * impede uma passada sobreposta do agendador de responder o mesmo lead duas
+ * vezes. No fim, só tira da fila se a hora ainda for a da trava — se o lead
+ * escreveu de novo enquanto a IA respondia, o webhook já reagendou e a nova
+ * mensagem é respondida na próxima passada, em vez de se perder.
+ */
+async function atenderLead(token: string, chat: ChatLead): Promise<string> {
+  const chatid = chat.wa_chatid!;
+  const telefone = chatid.split('@')[0];
+  const falta = Number(chat.lead_field02) - Date.now();
+  if (falta > 0) await new Promise((pronto) => setTimeout(pronto, falta));
+
+  const trava = String(Date.now() + 3 * 60_000);
+  await editarLead(token, chatid, { lead_field02: trava });
+
+  const liberar = async () => {
+    const atual = (await chatsComStatus(token, NA_FILA)).find((c) => c.wa_chatid === chatid);
+    if (!atual || atual.lead_field02 === trava) await tirarDaFila(token, chatid);
+  };
+
+  try {
+    const resultado = await responderConversa(chat.lead_field01!, token, telefone);
+    await liberar();
+    return resultado.respondeu ? `respondeu ${telefone}` : `pulou ${telefone}: ${resultado.motivo}`;
+  } catch (e) {
+    const tentativas = Number(chat.lead_field03 || 0) + 1;
+    const motivo = e instanceof Error ? e.message : String(e);
+    console.error(`[fila-ia] ${telefone} tentativa ${tentativas}:`, motivo);
+    if (tentativas >= TENTATIVAS) {
+      await liberar();
+    } else {
+      await editarLead(token, chatid, {
+        lead_field02: String(Date.now() + 2 * 60_000),
+        lead_field03: String(tentativas),
+      });
+    }
+    return `falhou ${telefone}: ${motivo}`;
+  }
+}
+
+/**
+ * Atende a fila de um chip: até 3 leads ao mesmo tempo, e só começa uma nova
+ * leva se ela couber no prazo da passada. Um lead por vez fazia a fila andar
+ * um lead por minuto — com 30 respostas de campanha juntas, o último esperava
+ * meia hora.
  */
 async function atenderChip(token: string, prazo: number): Promise<string[]> {
   const relatorio: string[] = [];
@@ -164,39 +215,18 @@ async function atenderChip(token: string, prazo: number): Promise<string[]> {
     )
     .sort((a, b) => Number(a.lead_field02) - Number(b.lead_field02));
 
-  for (const chat of vencidos) {
-    if (Date.now() > prazo) break;
-    const chatid = chat.wa_chatid!;
-    const telefone = chatid.split('@')[0];
-    const falta = Number(chat.lead_field02) - Date.now();
-    if (falta > 0) await new Promise((pronto) => setTimeout(pronto, falta));
-    try {
-      const resultado = await responderConversa(chat.lead_field01!, token, telefone);
-      await tirarDaFila(token, chatid);
-      relatorio.push(resultado.respondeu ? `respondeu ${telefone}` : `pulou ${telefone}: ${resultado.motivo}`);
-    } catch (e) {
-      const tentativas = Number(chat.lead_field03 || 0) + 1;
-      const motivo = e instanceof Error ? e.message : String(e);
-      console.error(`[fila-ia] ${telefone} tentativa ${tentativas}:`, motivo);
-      if (tentativas >= TENTATIVAS) {
-        await tirarDaFila(token, chatid);
-      } else {
-        await editarLead(token, chatid, {
-          lead_field02: String(Date.now() + 2 * 60_000),
-          lead_field03: String(tentativas),
-        });
-      }
-      relatorio.push(`falhou ${telefone}: ${motivo}`);
-    }
-    // Só engata o próximo se sobrar folga para uma resposta inteira.
-    if (Date.now() > prazo - 15_000) break;
+  for (let i = 0; i < vencidos.length; i += SIMULTANEOS) {
+    if (Date.now() + DURACAO_RESPOSTA > prazo) break;
+    const leva = vencidos.slice(i, i + SIMULTANEOS);
+    relatorio.push(...(await Promise.all(leva.map((chat) => atenderLead(token, chat)))));
   }
   return relatorio;
 }
 
 /** Roda a fila de todos os chips de disparo conectados, em paralelo entre si. */
 export async function processarFilaIa(): Promise<string[]> {
-  const prazo = Date.now() + 25_000;
+  // Cabe no maxDuration da rota de tarefas, que ainda faz o resto antes.
+  const prazo = Date.now() + 40_000;
   const instancias = (await listarInstancias()).filter(
     (i) => i.token && i.name?.startsWith('cliniia-') && estaConectado({ instance: i }),
   );
