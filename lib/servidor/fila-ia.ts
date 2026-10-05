@@ -36,15 +36,19 @@ import {
 const NA_FILA = 'ia_fila';
 const PASSAGEM = 'passagem';
 
-/** Quanto a IA espera depois da última mensagem do lead. */
-export const ESPERA_ANTES_DE_RESPONDER = 50_000;
+/**
+ * Quanto a IA espera depois da última mensagem do lead: o bastante para juntar
+ * mensagens seguidas numa resposta só, sem deixar o lead esperando.
+ */
+export const ESPERA_ANTES_DE_RESPONDER = 15_000;
 
 /**
- * O agendador passa a cada minuto; sem isto a resposta cairia entre 50 e
- * 110 s. Quem vence nos próximos segundos é atendido nesta passada, esperando
- * a hora exata — a espera real fica perto dos 50 s.
+ * Quem responde é o próprio webhook (responderLogo), logo depois da espera. O
+ * agendador é só a rede de segurança: pega o lead que ficou para trás — por
+ * isso só entra quando a hora de responder já passou com folga, para não
+ * disputar o mesmo lead com o webhook.
  */
-const ANTECIPA = 8_000;
+const ATRASO_DO_AGENDADOR = 30_000;
 
 /** Tentativas antes de desistir de um lead (ex.: OpenAI fora do ar). */
 const TENTATIVAS = 3;
@@ -152,6 +156,21 @@ async function atenderPassagens(
   return relatorio;
 }
 
+/**
+ * Responde o lead assim que a espera acaba, sem esperar o agendador.
+ *
+ * Chamado pelo webhook em segundo plano a cada mensagem. Se o lead mandou
+ * outra mensagem durante a espera, a hora dele foi empurrada e quem responde é
+ * a chamada da mensagem mais nova — esta desiste, e a resposta sai uma vez só.
+ */
+export async function responderLogo(token: string, chatid: string): Promise<string> {
+  await new Promise((pronto) => setTimeout(pronto, ESPERA_ANTES_DE_RESPONDER + 500));
+  const chat = (await chatsComStatus(token, NA_FILA)).find((c) => c.wa_chatid === chatid);
+  if (!chat?.lead_field01) return 'já atendido';
+  if (Number(chat.lead_field02) > Date.now()) return 'mensagem mais nova chegou';
+  return atenderLead(token, chat);
+}
+
 /** Quantos leads o mesmo chip responde ao mesmo tempo. */
 const SIMULTANEOS = 3;
 
@@ -211,7 +230,8 @@ async function atenderChip(token: string, prazo: number): Promise<string[]> {
   const relatorio: string[] = [];
   const vencidos = (await chatsComStatus(token, NA_FILA))
     .filter(
-      (c) => c.wa_chatid && c.lead_field01 && Number(c.lead_field02) <= Date.now() + ANTECIPA,
+      (c) =>
+        c.wa_chatid && c.lead_field01 && Number(c.lead_field02) <= Date.now() - ATRASO_DO_AGENDADOR,
     )
     .sort((a, b) => Number(a.lead_field02) - Number(b.lead_field02));
 

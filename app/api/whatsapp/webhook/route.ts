@@ -2,7 +2,7 @@ import { anonimo, chaveWebhook, falha, segredo } from '@/lib/servidor/banco';
 import { baixarMidia, estaConectado, type RespostaConexao } from '@/lib/servidor/uazapi';
 import { baixarImagemComoDataUrl } from '@/lib/servidor/imagem';
 import { variavel } from '@/lib/servidor/ambiente';
-import { enfileirar } from '@/lib/servidor/fila-ia';
+import { enfileirar, responderLogo } from '@/lib/servidor/fila-ia';
 import { lerFuncao } from '@/lib/servidor/funcao-chip';
 import { escutarAgendamento } from '@/lib/servidor/escuta-agenda';
 import { clienteDoRobo } from '@/lib/servidor/robo';
@@ -375,6 +375,12 @@ export async function POST(req: Request) {
     const chatid = texto(mensagem.chatid) || `${telefone}@s.whatsapp.net`;
     try {
       await enfileirar(token, chatid, gravada.conversa_id);
+      // Responde daqui mesmo, depois da espera; o agendador só cobre falhas.
+      await emSegundoPlano(
+        responderLogo(token, chatid)
+          .then((r) => console.log('[fila-ia]', telefone, r))
+          .catch((e) => console.error('[fila-ia] resposta:', e instanceof Error ? e.message : e)),
+      );
     } catch (e) {
       console.error('[fila-ia] não enfileirou:', e instanceof Error ? e.message : e);
     }
