@@ -35,8 +35,10 @@ async function esperaAte(): Promise<{ onde: string; fn: EsperaAte } | null> {
     return { onde: 'waitUntil (Cloudflare)', fn: cloudflare.waitUntil as EsperaAte };
   }
   if (process.env.VERCEL) {
-    const { waitUntil } = await import('@vercel/functions');
-    return { onde: 'waitUntil (Vercel)', fn: waitUntil };
+    // `after` do Next é o que a Vercel honra numa rota do Next; o `waitUntil`
+    // de @vercel/functions era ignorado em silêncio e o trabalho, cortado.
+    const { after } = await import('next/server');
+    return { onde: 'after (Vercel)', fn: (trabalho) => after(() => trabalho) };
   }
   return null;
 }

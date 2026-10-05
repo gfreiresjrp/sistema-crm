@@ -1,7 +1,6 @@
 import { anonimo, chaveWebhook, falha, segredo } from '@/lib/servidor/banco';
 import { lerFuncao } from '@/lib/servidor/funcao-chip';
 import { processarFilaIa } from '@/lib/servidor/fila-ia';
-import { emSegundoPlano } from '@/lib/servidor/segundo-plano';
 import { dispararLote, ErroDisparo } from '@/lib/servidor/disparo';
 import { clienteDoRobo } from '@/lib/servidor/robo';
 import { enviarTexto, listarMensagensDoDisparo } from '@/lib/servidor/uazapi';
@@ -190,19 +189,17 @@ export async function POST(req: Request) {
     }
 
     /*
-     * 5. A fila de respostas da IA. Roda depois da resposta ao agendador, em
-     * segundo plano: o pg_net desiste de esperar em poucos segundos, e cada
-     * resposta leva o tempo de uma pessoa digitando.
+     * 5. A fila de respostas da IA. Roda antes de responder, não em segundo
+     * plano: na Vercel o trabalho depois da resposta era cortado sem erro e a
+     * fila nunca andava (a IA "parava de responder"). A fila tem prazo próprio
+     * de ~25 s, dentro do maxDuration da rota.
      */
-    await emSegundoPlano(
-      processarFilaIa()
-        .then((feitos) => {
-          if (feitos.length) console.log('[fila-ia]', feitos.join(' | '));
-        })
-        .catch((e) => console.error('[fila-ia]', e instanceof Error ? e.message : e)),
-    );
+    const filaIa = await processarFilaIa().catch((e) => [
+      `erro: ${e instanceof Error ? e.message : String(e)}`,
+    ]);
+    if (filaIa.length) console.log('[fila-ia]', filaIa.join(' | '));
 
-    return Response.json({ ok: true, ...relatorio });
+    return Response.json({ ok: true, ...relatorio, filaIa });
   } catch (e) {
     return falha(e);
   }
