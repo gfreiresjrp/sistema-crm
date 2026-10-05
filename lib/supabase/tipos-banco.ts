@@ -2951,6 +2951,7 @@ export type Database = {
         Returns: string
       }
       zerar_contadores_chips: { Args: never; Returns: number }
+      wa_saude: { Args: { p_segredo: string }; Returns: Json }
     }
     Enums: {
       acao_auditoria: "insercao" | "atualizacao" | "exclusao"
