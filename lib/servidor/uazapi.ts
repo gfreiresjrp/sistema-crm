@@ -211,16 +211,24 @@ export async function marcarComoLido(token: string, numero: string): Promise<unk
 
 /**
  * Envia texto. `atraso` (ms) segura o envio mostrando "digitando..." para o
- * contato durante esse tempo — é o que a UazApi faz com `delay`.
+ * contato durante esse tempo — é o que a UazApi faz com `delay`. `citar` é o
+ * id de uma mensagem: a resposta sai como "responder" do WhatsApp, com a
+ * mensagem original em cima.
  */
 export async function enviarTexto(
   token: string,
   destino: string,
   texto: string,
   atraso?: number,
+  citar?: string | null,
 ): Promise<{ id?: string; messageid?: string; key?: { id?: string } }> {
   return chamar('/send/text', {
-    corpo: { number: destino, text: texto, ...(atraso ? { delay: atraso } : {}) },
+    corpo: {
+      number: destino,
+      text: texto,
+      ...(atraso ? { delay: atraso } : {}),
+      ...(citar ? { replyid: citar } : {}),
+    },
     token,
   });
 }

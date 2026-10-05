@@ -38,7 +38,14 @@ export async function POST(req: Request) {
     const token = await tokenDaCampanha(autorizacao.cliente, campanhaId);
     if (!token) return erro('O chip desta campanha não está mais pareado.', 409);
 
-    await controlarDisparo(token, campanha.pasta_externa, acao === 'pausar' ? 'stop' : 'continue');
+    // Uma pasta por lote diário; as já concluídas respondem erro e são ignoradas.
+    const pastas = campanha.pasta_externa.split(',').filter(Boolean);
+    const resultados = await Promise.allSettled(
+      pastas.map((p) => controlarDisparo(token, p, acao === 'pausar' ? 'stop' : 'continue')),
+    );
+    if (resultados.every((r) => r.status === 'rejected')) {
+      throw (resultados[0] as PromiseRejectedResult).reason;
+    }
 
     const { error } = await autorizacao.cliente
       .from('campanhas')
@@ -87,11 +94,13 @@ async function excluir(
   if (campanha.pasta_externa) {
     const token = await tokenDaCampanha(cliente, campanha.id);
     if (token) {
-      try {
-        await controlarDisparo(token, campanha.pasta_externa, 'delete');
-      } catch (e) {
-        // Fila já concluída ou apagada na UazApi: não há o que parar.
-        console.warn('[campanha] fila não apagada:', e instanceof Error ? e.message : e);
+      for (const pasta of campanha.pasta_externa.split(',').filter(Boolean)) {
+        try {
+          await controlarDisparo(token, pasta, 'delete');
+        } catch (e) {
+          // Fila já concluída ou apagada na UazApi: não há o que parar.
+          console.warn('[campanha] fila não apagada:', e instanceof Error ? e.message : e);
+        }
       }
     }
   }

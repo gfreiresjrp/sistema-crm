@@ -7,6 +7,7 @@ import { lerFuncao } from '@/lib/servidor/funcao-chip';
 import { escutarAgendamento } from '@/lib/servidor/escuta-agenda';
 import { clienteDoRobo } from '@/lib/servidor/robo';
 import { emSegundoPlano } from '@/lib/servidor/segundo-plano';
+import { confirmarPeloLembrete } from '@/lib/servidor/confirmacao';
 
 /** Na Vercel: folga para a IA terminar em segundo plano (`waitUntil`) depois da resposta. */
 export const maxDuration = 60;
@@ -352,6 +353,20 @@ export async function POST(req: Request) {
      * chip. No principal nada entra na fila: ali quem responde é a equipe.
      */
     const funcao = await lerFuncao(token).catch(() => null);
+
+    // Resposta a um lembrete ("sim, confirmo"): confirma na agenda, em qualquer chip.
+    if (funcao?.clinicaId) {
+      const clinicaId = funcao.clinicaId;
+      await emSegundoPlano(
+        (async () => {
+          const robo = await clienteDoRobo(clinicaId);
+          if (!robo) return;
+          const resultado = await confirmarPeloLembrete(robo, gravada.conversa_id);
+          if (resultado === 'confirmado') console.log('[confirmacao] agendamento confirmado pelo paciente');
+        })().catch((e) => console.error('[confirmacao]', e instanceof Error ? e.message : e)),
+      );
+    }
+
     if (funcao?.principal) {
       await escutarNoPrincipal(funcao.clinicaId, gravada.conversa_id);
       return Response.json({ ok: true, mensagemId: gravada.mensagem_id, assistente: 'escutando' });

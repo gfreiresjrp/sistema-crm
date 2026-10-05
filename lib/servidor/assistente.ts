@@ -1,4 +1,4 @@
-import { moeda } from '@/lib/dados/formato';
+import { moeda, telefoneVisivel } from '@/lib/dados/formato';
 import { anonimo, segredo } from './banco';
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/tipos-banco';
@@ -49,6 +49,8 @@ type Contexto = {
   }>;
   conhecimento: Array<{ pergunta: string; resposta: string; categoria?: string | null }>;
   mensagens: Array<{ autor: string; conteudo: string }>;
+  /** Id (no WhatsApp) da última mensagem do lead: a resposta da IA cita ela. */
+  responder_a?: string | null;
 };
 
 const TOM: Record<string, string> = {
@@ -195,17 +197,17 @@ ${agenda}
   const regrasPassagem = venda
     ? entrada.temPrincipal
       ? `- "qualificado": true quando a pessoa disse que quer comprar, perguntou como pagar ou fechar, ou pediu para falar com alguém da equipe. Curiosidade vaga, "só estou olhando", resposta negativa ou pedido para parar de receber mensagens NÃO qualificam.
-Quando "qualificado" for true, a "mensagem" deve, curta e natural, avisar que uma especialista vai finalizar a compra com ela em instantes pelo número oficial da clínica.`
+Quando "qualificado" for true, a "mensagem" deve, curta e natural, responder o que a pessoa disse e agradecer. Não fale de transferência nem de outro número: o aviso de quem vai continuar o atendimento sai logo depois, automaticamente.`
       : `- "qualificado": sempre false.`
     : semAgenda
     ? entrada.temPrincipal
       ? `- "qualificado": true quando a pessoa disse a data ou o período em que pode vir, ou pediu para agendar a avaliação, ou pediu para falar com alguém da equipe. Curiosidade vaga, "só estou olhando", resposta negativa ou pedido para parar de receber mensagens NÃO qualificam.
-Quando "qualificado" for true, a "mensagem" deve, curta e natural, agradecer e avisar que a nossa responsável vai continuar o atendimento em instantes pelo número oficial da clínica para agendar a avaliação personalizada. Não diga "agendado" nem "confirmado" e não cite valores.`
+Quando "qualificado" for true, a "mensagem" deve, curta e natural, responder o que a pessoa disse e agradecer. Não fale de transferência nem de outro número (o aviso sai logo depois, automaticamente), não diga "agendado" nem "confirmado" e não cite valores.`
       : `- "qualificado": sempre false.
 Quando a pessoa disser a data em que pode vir, a "mensagem" deve dizer que a nossa responsável vai entrar em contato para confirmar a avaliação (não diga "agendado" nem "confirmado").`
     : entrada.temPrincipal
     ? `- "qualificado": true quando a pessoa escolheu um horário da lista, ou pediu para falar com alguém da equipe, ou quer fechar e só falta combinar valores. Curiosidade vaga, "só estou olhando", resposta negativa ou pedido para parar de receber mensagens NÃO qualificam.
-Quando "qualificado" for true, a "mensagem" deve, curta e natural, dizer que o horário escolhido (se houver) ficou separado — quem confirma é a equipe, então não diga "agendado" nem "confirmado" — e avisar que uma especialista vai continuar o atendimento em instantes pelo número oficial da clínica. Não cite valores nesse caso.`
+Quando "qualificado" for true, a "mensagem" deve, curta e natural, dizer que o horário escolhido (se houver) ficou separado — quem confirma é a equipe, então não diga "agendado" nem "confirmado". Não fale de transferência nem de outro número (o aviso sai logo depois, automaticamente) e não cite valores nesse caso.`
     : `- "qualificado": sempre false.
 Quando a pessoa escolher um horário, a "mensagem" deve dizer que ficou separado e que a equipe vai confirmar com ela (não diga "agendado" nem "confirmado").`;
 
@@ -266,6 +268,23 @@ function mensagemDaPassagem(
     `A ${assistente} me passou seu contato${assunto}.${quando} ` +
     `Vou continuar seu atendimento por aqui, tudo bem?${MARCA_PASSAGEM}`
   );
+}
+
+/** "Nossa responsável vai te chamar pelo (51) 9287-2997" — com o número do principal. */
+async function avisoDePassagem(
+  robo: SupabaseClient<Database> | null,
+  principalId: string | null,
+  contexto: Contexto,
+): Promise<string> {
+  const { data } =
+    robo && principalId
+      ? await robo.from('numeros_whatsapp').select('numero').eq('id', principalId).maybeSingle()
+      : { data: null };
+  const numero = data?.numero ? telefoneVisivel(data.numero) : null;
+  const clinica = contexto.clinica ?? 'clínica';
+  return numero
+    ? `Vou te passar agora para a nossa responsável, que vai continuar seu atendimento pelo WhatsApp oficial da ${clinica}: ${numero}. Ela já vai te chamar por lá, é só responder 💛`
+    : `Vou te passar agora para a nossa responsável, que vai continuar seu atendimento pelo WhatsApp oficial da ${clinica}. Ela já vai te chamar, é só responder por lá 💛`;
 }
 
 /** Separa o horário escolhido pelo lead, aguardando a equipe confirmar. */
@@ -480,7 +499,14 @@ export async function responderConversa(
     };
   }
 
-  const enviada = await enviarTexto(token, telefone, texto, tempoDigitando(texto));
+  // Responde citando a última mensagem do lead, como o "responder" do WhatsApp.
+  const enviada = await enviarTexto(
+    token,
+    telefone,
+    texto,
+    tempoDigitando(texto),
+    contexto.responder_a ?? null,
+  );
   const idExterno = enviada?.id ?? enviada?.messageid ?? enviada?.key?.id ?? null;
 
   await servidor.rpc('wa_registrar_resposta_ia', {
@@ -502,6 +528,27 @@ export async function responderConversa(
   }
 
   if (!principal) return { respondeu: true, texto, passouParaPrincipal: false };
+
+  /*
+   * O lead precisa saber que vai ser chamado por outro número — senão a
+   * mensagem do principal chega de um contato desconhecido e é ignorada. O
+   * aviso é fixo (não depende da IA lembrar) e leva o número do principal.
+   */
+  const aviso = await avisoDePassagem(robo, funcao.principalId, contexto);
+  const avisoEnviado = await enviarTexto(token, telefone, aviso, tempoDigitando(aviso)).catch(
+    (e) => {
+      console.error('[assistente] aviso de passagem:', e instanceof Error ? e.message : e);
+      return null;
+    },
+  );
+  if (avisoEnviado) {
+    await servidor.rpc('wa_registrar_resposta_ia', {
+      p_segredo: chave,
+      p_conversa_id: conversaId,
+      p_conteudo: aviso,
+      p_id_externo: avisoEnviado.id ?? avisoEnviado.messageid ?? avisoEnviado.key?.id ?? null,
+    });
+  }
 
   /*
    * A passagem: o chip principal chama o lead. Não sai daqui — entra na fila

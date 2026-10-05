@@ -2,6 +2,8 @@ import { anonimo, chaveWebhook, falha, segredo } from '@/lib/servidor/banco';
 import { lerFuncao } from '@/lib/servidor/funcao-chip';
 import { processarFilaIa } from '@/lib/servidor/fila-ia';
 import { emSegundoPlano } from '@/lib/servidor/segundo-plano';
+import { dispararLote, ErroDisparo } from '@/lib/servidor/disparo';
+import { clienteDoRobo } from '@/lib/servidor/robo';
 import { enviarTexto, listarMensagensDoDisparo } from '@/lib/servidor/uazapi';
 
 /** Na Vercel: folga para a IA terminar em segundo plano (`waitUntil`) depois da resposta. */
@@ -53,7 +55,13 @@ export async function POST(req: Request) {
 
     const chave = await segredo();
     const servidor = anonimo();
-    const relatorio = { followupsCriados: 0, enviados: 0, falhas: 0, camposConciliados: 0 };
+    const relatorio = {
+      followupsCriados: 0,
+      enviados: 0,
+      falhas: 0,
+      camposConciliados: 0,
+      lotesDeCampanha: [] as string[],
+    };
 
     /* 1. Cria o que venceu: follow-ups de quem não respondeu. */
     const { data: geradas, error: erroGerar } = await servidor.rpc('wa_gerar_pendencias', {
@@ -127,7 +135,11 @@ export async function POST(req: Request) {
 
     for (const campanha of campanhas ?? []) {
       try {
-        const mensagens = await listarMensagensDoDisparo(campanha.token, campanha.pasta_externa);
+        // Campanha em lotes diários: uma pasta da UazApi por lote.
+        const pastas = campanha.pasta_externa.split(',').filter(Boolean);
+        const mensagens = (
+          await Promise.all(pastas.map((p) => listarMensagensDoDisparo(campanha.token, p)))
+        ).flat();
 
         const entregues: string[] = [];
         const falhados: string[] = [];
@@ -154,7 +166,31 @@ export async function POST(req: Request) {
     }
 
     /*
-     * 4. A fila de respostas da IA. Roda depois da resposta ao agendador, em
+     * 4. Campanhas maiores que o limite diário do chip: manda o próximo lote,
+     * com o login da IA na clínica (o agendador não tem usuário).
+     */
+    const { data: aContinuar } = await servidor.rpc('wa_campanhas_a_continuar', {
+      p_segredo: chave,
+    });
+    for (const { campanha_id, clinica_id } of aContinuar ?? []) {
+      try {
+        const robo = await clienteDoRobo(clinica_id);
+        if (!robo) {
+          relatorio.lotesDeCampanha.push(`${campanha_id}: sem login da IA`);
+          continue;
+        }
+        const lote = await dispararLote(robo, campanha_id);
+        relatorio.lotesDeCampanha.push(`${campanha_id}: ${lote.enviados} enviados, faltam ${lote.faltam}`);
+      } catch (e) {
+        // Chip no limite ou desconectado: tenta de novo na próxima passada.
+        const motivo = e instanceof Error ? e.message : String(e);
+        if (!(e instanceof ErroDisparo)) console.error('[tarefas] lote de campanha:', motivo);
+        relatorio.lotesDeCampanha.push(`${campanha_id}: ${motivo}`);
+      }
+    }
+
+    /*
+     * 5. A fila de respostas da IA. Roda depois da resposta ao agendador, em
      * segundo plano: o pg_net desiste de esperar em poucos segundos, e cada
      * resposta leva o tempo de uma pessoa digitando.
      */

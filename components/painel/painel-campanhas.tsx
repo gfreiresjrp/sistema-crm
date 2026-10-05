@@ -269,7 +269,11 @@ export function PainelCampanhas() {
    */
   const concluidas = (campanhas.dados ?? []).filter((c) => {
     const a = andamento.get(c.campanha_id);
-    return c.status === 'em_andamento' && a && a.total > 0 && a.pendentes === 0;
+    // Lote do dia entregue não é campanha concluída: os próximos saem nos dias seguintes.
+    const faltam = Number(
+      ((filtroDaCampanha.get(c.campanha_id) ?? {}) as { faltam?: number }).faltam ?? 0,
+    );
+    return c.status === 'em_andamento' && a && a.total > 0 && a.pendentes === 0 && faltam === 0;
   });
   const idsConcluidas = concluidas.map((c) => c.campanha_id).join(',');
   useEffect(() => {
@@ -288,7 +292,7 @@ export function PainelCampanhas() {
         const r = await whatsapp.dispararCampanha(campanha.campanha_id);
         return { error: null, resultado: r };
       },
-      `"${campanha.campanha}" iniciada — vai enviar para a lista inteira sozinha`,
+      `"${campanha.campanha}" iniciada — sai hoje até o limite diário do chip e continua sozinha nos próximos dias`,
       () => setPulso((n) => n + 1),
     );
   }
@@ -713,7 +717,7 @@ function ControleCampanha({
         onClick={aoIniciar}
         title={
           podeIniciar
-            ? 'Envia para a lista inteira sozinha, no ritmo escolhido, até o último contato'
+            ? 'Envia para a lista inteira sozinha: por dia, até o limite do chip, até o último contato'
             : 'Conecte um chip de disparo primeiro'
         }
       >
