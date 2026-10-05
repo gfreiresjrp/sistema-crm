@@ -8,6 +8,9 @@ import { escutarAgendamento } from '@/lib/servidor/escuta-agenda';
 import { clienteDoRobo } from '@/lib/servidor/robo';
 import { emSegundoPlano } from '@/lib/servidor/segundo-plano';
 
+/** Na Vercel: folga para a IA terminar em segundo plano (`waitUntil`) depois da resposta. */
+export const maxDuration = 60;
+
 /**
  * No chip principal a IA não responde, mas escuta: se a atendente fechou um
  * horário, ela agenda com o próprio login (`robo.ts`). Em segundo plano, para

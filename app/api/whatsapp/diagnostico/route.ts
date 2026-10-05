@@ -4,6 +4,7 @@ import { lerFuncao } from '@/lib/servidor/funcao-chip';
 import { horariosLivres } from '@/lib/servidor/agenda';
 import { clienteDoRobo } from '@/lib/servidor/robo';
 import { variavel, variaveisPresentes } from '@/lib/servidor/ambiente';
+import { modoSegundoPlano } from '@/lib/servidor/segundo-plano';
 
 /**
  * Diz se o servidor tem o que a IA precisa, sem revelar nenhum valor.
@@ -67,13 +68,7 @@ export async function GET(req: Request) {
   }
 
   // A IA roda depois da resposta ao webhook; sem `waitUntil` ela seria cortada.
-  let segundoPlano = 'indisponível';
-  try {
-    const modulo = (await import('cloudflare:workers')) as { waitUntil?: unknown };
-    if (typeof modulo.waitUntil === 'function') segundoPlano = 'waitUntil';
-  } catch {
-    // Fora do Workers.
-  }
+  const segundoPlano = await modoSegundoPlano();
 
   return Response.json({ variaveis, openai, segundoPlano, simulacao });
 }

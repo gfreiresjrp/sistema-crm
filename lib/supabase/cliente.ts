@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from './tipos-banco';
+import { SUPABASE_CHAVE_PUBLICA, SUPABASE_URL } from './ambiente-publico';
 
 /**
  * Cliente Supabase do CliniIA.
@@ -8,8 +9,8 @@ import type { Database } from './tipos-banco';
  * dos dados vem do RLS, não do sigilo da chave. A service_role nunca entra aqui.
  */
 
-const URL = import.meta.env.VITE_SUPABASE_URL;
-const CHAVE = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const URL = SUPABASE_URL;
+const CHAVE = SUPABASE_CHAVE_PUBLICA;
 
 /**
  * Estas variáveis são embutidas no código durante o build, não lidas em

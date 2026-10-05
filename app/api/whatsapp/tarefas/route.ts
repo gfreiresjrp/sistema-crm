@@ -4,6 +4,9 @@ import { processarFilaIa } from '@/lib/servidor/fila-ia';
 import { emSegundoPlano } from '@/lib/servidor/segundo-plano';
 import { enviarTexto, listarMensagensDoDisparo } from '@/lib/servidor/uazapi';
 
+/** Na Vercel: folga para a IA terminar em segundo plano (`waitUntil`) depois da resposta. */
+export const maxDuration = 60;
+
 /**
  * Roda as tarefas de fundo: lembretes, follow-ups e o acerto do funil.
  *

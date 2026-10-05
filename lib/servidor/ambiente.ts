@@ -1,3 +1,5 @@
+import { moduloCloudflare } from './segundo-plano';
+
 /**
  * Variáveis de servidor.
  *
@@ -23,12 +25,9 @@ async function carregar(): Promise<Record<string, string>> {
 
   const encontrado: Record<string, string> = {};
 
-  try {
-    const { env } = await import('cloudflare:workers');
-    Object.assign(encontrado, env as Record<string, string>);
-  } catch {
-    // Fora do runtime do Workers (ex.: build de node) — segue para process.env.
-  }
+  // Fora do runtime do Workers (Vercel, build de node) — segue para process.env.
+  const cloudflare = await moduloCloudflare();
+  if (cloudflare?.env) Object.assign(encontrado, cloudflare.env as Record<string, string>);
 
   if (typeof process !== 'undefined' && process.env) {
     for (const [chave, valor] of Object.entries(process.env)) {

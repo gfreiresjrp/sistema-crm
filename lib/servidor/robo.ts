@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/tipos-banco';
+import { SUPABASE_CHAVE_PUBLICA, SUPABASE_URL } from '@/lib/supabase/ambiente-publico';
 import { comoUsuario, segredo } from './banco';
 
 /**
@@ -34,8 +35,8 @@ async function entrar(clinicaId: string): Promise<string | null> {
   if (guardada && guardada.expiraEm > Date.now() + 60_000) return guardada.jwt;
 
   const anonimo = createClient<Database>(
-    import.meta.env.VITE_SUPABASE_URL,
-    import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY,
+    SUPABASE_URL,
+    SUPABASE_CHAVE_PUBLICA,
     { auth: { persistSession: false, autoRefreshToken: false } },
   );
   const { data, error } = await anonimo.auth.signInWithPassword({

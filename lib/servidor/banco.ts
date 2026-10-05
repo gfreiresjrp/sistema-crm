@@ -1,5 +1,6 @@
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/tipos-banco';
+import { SUPABASE_CHAVE_PUBLICA, SUPABASE_URL } from '@/lib/supabase/ambiente-publico';
 import { variavel } from './ambiente';
 
 /**
@@ -15,8 +16,8 @@ import { variavel } from './ambiente';
  *    o segredo do servidor. É o único jeito de o webhook gravar sem usuário.
  */
 
-const URL_SUPABASE = import.meta.env.VITE_SUPABASE_URL;
-const CHAVE_PUBLICA = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
+const URL_SUPABASE = SUPABASE_URL;
+const CHAVE_PUBLICA = SUPABASE_CHAVE_PUBLICA;
 
 export function comoUsuario(jwt: string): SupabaseClient<Database> {
   return createClient<Database>(URL_SUPABASE, CHAVE_PUBLICA, {
