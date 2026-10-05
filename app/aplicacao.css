@@ -614,3 +614,120 @@
   background: var(--gold-veil);
   border-radius: 4px;
 }
+
+/* ------------------------------------------------- conhecimento e follow-up */
+
+.lista-conhecimento {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.item-conhecimento {
+  padding: 14px 16px;
+  background: var(--surface-2);
+  border: 1px solid var(--line-soft);
+  border-radius: var(--r-md);
+}
+
+.item-conhecimento.pausado {
+  opacity: 0.55;
+}
+
+.item-conhecimento header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.item-conhecimento header > div:first-child {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.item-conhecimento header b {
+  font-size: 13.5px;
+  color: var(--text);
+}
+
+.item-conhecimento p {
+  margin: 0;
+  font-size: 12.5px;
+  line-height: 1.6;
+  color: var(--text-2);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.acoes-conhecimento {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 4px;
+}
+
+.icone-acao {
+  display: grid;
+  place-items: center;
+  padding: 5px;
+  color: var(--muted);
+  background: transparent;
+  border: 0;
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  transition: color 0.15s ease;
+}
+
+.icone-acao:hover {
+  color: var(--gold-tinta);
+}
+
+.dias-followup {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.dias-followup input {
+  width: 56px;
+  padding: 5px 8px;
+  font: inherit;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 7px;
+}
+
+.texto-followup {
+  width: 100%;
+  padding: 10px 12px;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  resize: vertical;
+  outline: none;
+}
+
+.texto-followup:focus,
+.dias-followup input:focus {
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px var(--gold-veil);
+}
+
+@media (max-width: 640px) {
+  .item-conhecimento header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

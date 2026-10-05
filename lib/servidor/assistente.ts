@@ -47,7 +47,7 @@ type Contexto = {
     duracao_minutos: number | null;
     valor: number | null;
   }>;
-  conhecimento: Array<{ pergunta: string; resposta: string }>;
+  conhecimento: Array<{ pergunta: string; resposta: string; categoria?: string | null }>;
   mensagens: Array<{ autor: string; conteudo: string }>;
 };
 
@@ -83,8 +83,11 @@ function montarPrompt(contexto: Contexto): string {
     .filter(Boolean)
     .join(' ');
 
+  // O que a equipe cadastrou na aba Conhecimento: texto livre, por assunto.
   const conhecimento = contexto.conhecimento.length
-    ? contexto.conhecimento.map((k) => `P: ${k.pergunta}\nR: ${k.resposta}`).join('\n\n')
+    ? contexto.conhecimento
+        .map((k) => `## ${k.categoria ? `${k.categoria} — ` : ''}${k.pergunta}\n${k.resposta}`)
+        .join('\n\n')
     : 'Nada cadastrado ainda.';
 
   const paciente = contexto.paciente

@@ -1,12 +1,21 @@
 'use client';
 
 import { useState } from 'react';
-import { Bot, Loader2, RotateCcw } from 'lucide-react';
+import { BookOpen, Bot, Loader2, MessageCircleMore, RotateCcw } from 'lucide-react';
 import { supabase } from '@/lib/supabase/cliente';
 import { useConsulta } from '@/lib/dados/consulta';
 import { useClinica } from '@/lib/dados/sessao';
 import type { ConfiguracaoIA } from '@/lib/dados/catalogo';
 import { Cabecalho, Conteudo, EstadoVazio, useAcao } from './base';
+import { ConhecimentoIA, FollowUpIA } from './conhecimento-ia';
+
+type Guia = 'assistente' | 'conhecimento' | 'followup';
+
+const GUIAS: Array<[Guia, string, React.ElementType]> = [
+  ['assistente', 'Assistente', Bot],
+  ['conhecimento', 'Conhecimento', BookOpen],
+  ['followup', 'Follow-up', MessageCircleMore],
+];
 
 /**
  * Os marcadores que o servidor troca por dados vivos antes de chamar a OpenAI.
@@ -20,7 +29,7 @@ const MARCADORES: Array<[string, string]> = [
   ['{{apresentacao}}', 'mensagem de apresentação'],
   ['{{procedimentos}}', 'catálogo com preços e duração'],
   ['{{limites}}', 'desconto, entrada e parcelas'],
-  ['{{conhecimento}}', 'perguntas frequentes cadastradas'],
+  ['{{conhecimento}}', 'tudo o que foi cadastrado na aba Conhecimento'],
   ['{{paciente}}', 'nome, interesse e situação de quem escreveu'],
   ['{{instrucoes}}', 'instruções adicionais deste formulário'],
 ];
@@ -49,6 +58,7 @@ type ChaveAutomacao = (typeof AUTOMACOES)[number][0];
 
 export function PainelIA() {
   const { clinicaId, ehGestor } = useClinica();
+  const [guia, setGuia] = useState<Guia>('assistente');
 
   // O texto padrão é o mesmo que o banco usa ao provisionar uma clínica nova;
   // buscá-lo de lá evita duas versões do prompt em lugares diferentes.
@@ -123,6 +133,22 @@ export function PainelIA() {
         texto="Como sua assistente conversa, negocia e acompanha cada cliente."
       />
 
+      <div className="guias">
+        {GUIAS.map(([chave, rotulo, Icone]) => (
+          <button
+            key={chave}
+            className={guia === chave ? 'active' : ''}
+            onClick={() => setGuia(chave)}
+          >
+            <Icone size={15} /> {rotulo}
+          </button>
+        ))}
+      </div>
+
+      {guia === 'conhecimento' && <ConhecimentoIA />}
+      {guia === 'followup' && <FollowUpIA />}
+
+      {guia === 'assistente' && (
       <Conteudo
         consulta={consulta}
         linhas={3}
@@ -345,6 +371,7 @@ export function PainelIA() {
           )
         }
       </Conteudo>
+      )}
     </>
   );
 }
