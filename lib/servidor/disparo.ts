@@ -64,6 +64,8 @@ export function personalizar(modelo: string, nomeCompleto: string | null): strin
     .replace(/\{\{\s*primeiro_nome\s*\}\}/g, formatado)
     .replace(/\{\{\s*nome\s*\}\}/g, valido ? nome : '')
     .replace(/ +([!?,.])/g, '$1')
+    // "Oi, {{primeiro_nome}}, tudo bem?" sem nome não pode virar "Oi,, tudo bem?".
+    .replace(/,+(?=[,!?.])/g, '')
     .replace(/ {2,}/g, ' ')
     .trim();
 }

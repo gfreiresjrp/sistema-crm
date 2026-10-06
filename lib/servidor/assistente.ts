@@ -94,7 +94,11 @@ function montarPrompt(contexto: Contexto): string {
 
   const paciente = contexto.paciente
     ? [
-        `Nome: ${contexto.paciente.nome}`,
+        // Importado sem nome, o contato tem o telefone no lugar: a IA não pode
+        // chamar ninguém pelo número.
+        primeiroNome(contexto.paciente.nome)
+          ? `Nome: ${contexto.paciente.nome}`
+          : 'Nome: não informado (não chame a pessoa pelo nome)',
         contexto.paciente.interesse ? `Interesse: ${contexto.paciente.interesse}` : null,
         `Situação: ${contexto.paciente.situacao}`,
       ]
