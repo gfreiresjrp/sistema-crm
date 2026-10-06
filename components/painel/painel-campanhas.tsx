@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase/cliente';
 import { useConsulta } from '@/lib/dados/consulta';
+import { buscarTodas } from '@/lib/dados/paginar';
 import { useClinica } from '@/lib/dados/sessao';
 import { whatsapp } from '@/lib/dados/api';
 import { subirMidia, TAMANHO_MAXIMO } from '@/lib/dados/midia';
@@ -245,11 +246,14 @@ export function PainelCampanhas() {
   const envios = useConsulta<Array<{ campanha_id: string; status: string }>>(
     clinicaId
       ? () =>
-          supabase
-            .from('envios_campanha')
-            .select('campanha_id, status')
-            .eq('clinica_id', clinicaId)
-            .limit(5000)
+          buscarTodas((de, ate) =>
+            supabase
+              .from('envios_campanha')
+              .select('campanha_id, status')
+              .eq('clinica_id', clinicaId)
+              .order('id')
+              .range(de, ate),
+          )
       : null,
     [clinicaId], [pulso],
   );

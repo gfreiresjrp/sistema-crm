@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { Contact, Download, MessageCircle, Plus, Search, Upload } from 'lucide-react';
 import { supabase } from '@/lib/supabase/cliente';
 import { useConsulta } from '@/lib/dados/consulta';
+import { buscarTodas } from '@/lib/dados/paginar';
 import { useClinica } from '@/lib/dados/sessao';
 import { garantirPaciente, useProcedimentos } from '@/lib/dados/catalogo';
 import {
@@ -18,6 +19,9 @@ import { baixarCsv } from '@/lib/dados/exportar';
 import { Avatar } from './avatar';
 import { ImportarContatos } from './importar-contatos';
 import type { Vista } from './navegacao';
+
+/** Linhas desenhadas de uma vez: milhares de linhas travam a tela; a busca e a exportação usam todas. */
+const LINHAS_POR_VEZ = 300;
 
 type Contato = {
   id: string;
@@ -50,19 +54,23 @@ export function PainelContatos({ ir }: { ir: (v: Vista) => void }) {
   const [modalAberto, setModalAberto] = useState(false);
   const [importAberto, setImportAberto] = useState(false);
   const [pulso, setPulso] = useState(0);
+  const [mostrando, setMostrando] = useState(LINHAS_POR_VEZ);
 
   const contatos = useConsulta<Contato[]>(
     clinicaId
       ? () =>
-          supabase
-            .from('pacientes')
-            .select(
-              'id, nome_completo, telefone, email, origem, situacao, interesse_principal, foto_url, ultimo_contato_em, ultima_visita_em, criado_em',
-            )
-            .eq('clinica_id', clinicaId)
-            .is('excluido_em', null)
-            .order('criado_em', { ascending: false })
-            .limit(2000)
+          buscarTodas((de, ate) =>
+            supabase
+              .from('pacientes')
+              .select(
+                'id, nome_completo, telefone, email, origem, situacao, interesse_principal, foto_url, ultimo_contato_em, ultima_visita_em, criado_em',
+              )
+              .eq('clinica_id', clinicaId)
+              .is('excluido_em', null)
+              .order('criado_em', { ascending: false })
+              .order('id')
+              .range(de, ate),
+          )
       : null,
     [clinicaId], [pulso],
   );
@@ -222,7 +230,7 @@ export function PainelContatos({ ir }: { ir: (v: Vista) => void }) {
                     <span>ÚLTIMO CONTATO</span>
                     <span />
                   </header>
-                  {lista.map((contato) => (
+                  {lista.slice(0, mostrando).map((contato) => (
                     <div key={contato.id}>
                       <span className="celula-nome">
                         <Avatar nome={contato.nome_completo} foto={contato.foto_url} />
@@ -254,6 +262,14 @@ export function PainelContatos({ ir }: { ir: (v: Vista) => void }) {
                     </div>
                   ))}
                 </div>
+                {lista.length > mostrando && (
+                  <button
+                    className="secondary-btn"
+                    onClick={() => setMostrando((n) => n + LINHAS_POR_VEZ)}
+                  >
+                    Mostrar mais ({lista.length - mostrando} restantes)
+                  </button>
+                )}
               </>
             )
           }

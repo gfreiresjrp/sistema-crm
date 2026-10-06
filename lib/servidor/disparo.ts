@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/lib/supabase/tipos-banco';
+import { buscarTodas, emBlocos } from '@/lib/dados/paginar';
 import { anonimo, normalizarTelefone, segredo } from './banco';
 import { checarNumeros, criarDisparo } from './uazapi';
 
@@ -223,35 +224,56 @@ export async function dispararLote(cliente: Cliente, campanhaId: string): Promis
   }
 
   // Público: a lista escolhida (ou a base toda), quem aceita marketing e
-  // ainda não passou por esta campanha.
-  const { data: jaEnviados } = await cliente
-    .from('envios_campanha')
-    .select('paciente_id')
-    .eq('campanha_id', campanha.id)
-    .limit(10000);
+  // ainda não passou por esta campanha. Tudo em páginas: o Supabase corta
+  // cada consulta em 1.000 linhas.
+  const { data: jaEnviados } = await buscarTodas((de, ate) =>
+    cliente
+      .from('envios_campanha')
+      .select('paciente_id')
+      .eq('campanha_id', campanha.id)
+      .order('id')
+      .range(de, ate),
+  );
   const excluir = new Set((jaEnviados ?? []).map((e) => e.paciente_id));
 
-  let consultaPublico = cliente
-    .from('pacientes')
-    .select('id, nome_completo, telefone')
-    .eq('clinica_id', campanha.clinica_id)
-    .eq('aceita_marketing', true)
-    .is('excluido_em', null)
-    .order('criado_em')
-    .limit(5000);
+  const daBase = () =>
+    cliente
+      .from('pacientes')
+      .select('id, nome_completo, telefone, criado_em')
+      .eq('clinica_id', campanha.clinica_id)
+      .eq('aceita_marketing', true)
+      .is('excluido_em', null);
 
-  if (filtro.lista_id) {
-    const { data: itens } = await cliente
-      .from('listas_leads_itens')
-      .select('paciente_id')
-      .eq('lista_id', filtro.lista_id)
-      .limit(5000);
+  type Contato = { id: string; nome_completo: string; telefone: string; criado_em: string };
+  let publico: Contato[] = [];
+
+  const listaId = filtro.lista_id;
+  if (listaId) {
+    const { data: itens } = await buscarTodas((de, ate) =>
+      cliente
+        .from('listas_leads_itens')
+        .select('paciente_id')
+        .eq('lista_id', listaId)
+        .order('id')
+        .range(de, ate),
+    );
     const idsDaLista = (itens ?? []).map((i) => i.paciente_id);
     if (idsDaLista.length === 0) throw new ErroDisparo('A lista escolhida para esta campanha está vazia.');
-    consultaPublico = consultaPublico.in('id', idsDaLista);
+    // `.in()` vai na URL: milhares de ids de uma vez estouram o tamanho dela.
+    for (const bloco of emBlocos(idsDaLista)) {
+      const { data, error } = await daBase().in('id', bloco);
+      if (error) throw new ErroDisparo(error.message, 500);
+      publico.push(...(data ?? []));
+    }
+    publico.sort((a, b) => a.criado_em.localeCompare(b.criado_em) || a.id.localeCompare(b.id));
+  } else {
+    const { data, error } = await buscarTodas((de, ate) =>
+      daBase().order('criado_em').order('id').range(de, ate),
+    );
+    if (error) throw new ErroDisparo((error as Error).message, 500);
+    publico = data ?? [];
   }
 
-  const { data: publico } = await consultaPublico;
   const restantes = (publico ?? []).filter((p) => !excluir.has(p.id));
   if (restantes.length === 0) {
     await cliente

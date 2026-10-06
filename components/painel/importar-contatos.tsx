@@ -14,6 +14,7 @@ import {
   type Mapeamento,
   type Tabela,
 } from '@/lib/dados/importar';
+import { buscarTodas } from '@/lib/dados/paginar';
 import { Campo, Modal, useAviso } from './base';
 
 /**
@@ -114,14 +115,30 @@ export function ImportarContatos({
 
     try {
       // Quem já está cadastrado não entra de novo: o telefone é a chave.
-      const { data: existentes } = await supabase
-        .from('pacientes')
-        .select('telefone')
-        .eq('clinica_id', clinicaId)
-        .is('excluido_em', null);
+      // A base inteira, página a página: cortada em 1.000, quem ficasse de
+      // fora seria gravado de novo.
+      const { data: existentes, error: erroExistentes } = await buscarTodas<{
+        id: string;
+        telefone: string;
+      }>((de, ate) =>
+        supabase
+          .from('pacientes')
+          .select('id, telefone')
+          .eq('clinica_id', clinicaId)
+          .is('excluido_em', null)
+          .order('id')
+          .range(de, ate),
+      );
+      if (erroExistentes) {
+        alertar('Não deu para conferir os contatos já cadastrados. Tente de novo.');
+        return;
+      }
 
-      const jaTem = new Set((existentes ?? []).map((p) => p.telefone));
-      const novos = preparados.filter((p) => !jaTem.has(p.telefone));
+      const idsPorTelefone = new Map<string, string[]>();
+      for (const p of existentes ?? []) {
+        idsPorTelefone.set(p.telefone, [...(idsPorTelefone.get(p.telefone) ?? []), p.id]);
+      }
+      const novos = preparados.filter((p) => !idsPorTelefone.has(p.telefone));
 
       if (novos.length === 0 && !listaEscolha) {
         avisar('Todos os contatos do arquivo já estavam cadastrados.');
@@ -185,15 +202,8 @@ export function ImportarContatos({
       // existiam, porque o arquivo é que define o público.
       let naLista = 0;
       if (listaId) {
-        const { data: existentesDoArquivo } = await supabase
-          .from('pacientes')
-          .select('id')
-          .eq('clinica_id', clinicaId)
-          .is('excluido_em', null)
-          .in('telefone', preparados.map((p) => p.telefone));
-        const ids = [
-          ...new Set([...(existentesDoArquivo ?? []).map((p) => p.id), ...idsImportados]),
-        ];
+        const existentesDoArquivo = preparados.flatMap((p) => idsPorTelefone.get(p.telefone) ?? []);
+        const ids = [...new Set([...existentesDoArquivo, ...idsImportados])];
         for (let i = 0; i < ids.length; i += LOTE) {
           const fatia = ids.slice(i, i + LOTE);
           const { error: erroItens } = await supabase.from('listas_leads_itens').upsert(

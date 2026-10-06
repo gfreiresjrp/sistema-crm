@@ -4,6 +4,7 @@ import { useMemo, useState } from 'react';
 import { KanbanSquare, ListChecks, Plus, Search, Trash2, UserPlus, X } from 'lucide-react';
 import { supabase } from '@/lib/supabase/cliente';
 import { useConsulta } from '@/lib/dados/consulta';
+import { buscarTodas } from '@/lib/dados/paginar';
 import { useClinica } from '@/lib/dados/sessao';
 import { dataCurta, ROTULO_ORIGEM, telefoneVisivel } from '@/lib/dados/formato';
 import { Avatar } from './avatar';
@@ -92,12 +93,17 @@ export function PainelListas() {
   const itens = useConsulta<Item[]>(
     clinicaId && atual
       ? () =>
-          supabase
-            .from('listas_leads_itens')
-            .select('id, criado_em, pacientes(id, nome_completo, telefone, origem, situacao, foto_url)')
-            .eq('lista_id', atual.id)
-            .order('criado_em', { ascending: false })
-            .limit(2000)
+          buscarTodas((de, ate) =>
+            supabase
+              .from('listas_leads_itens')
+              .select(
+                'id, criado_em, pacientes(id, nome_completo, telefone, origem, situacao, foto_url)',
+              )
+              .eq('lista_id', atual.id)
+              .order('criado_em', { ascending: false })
+              .order('id')
+              .range(de, ate),
+          )
       : null,
     [clinicaId, atual?.id], [pulso],
   );
@@ -249,46 +255,53 @@ export function PainelListas() {
                       visiveis.length === 0 ? (
                         <p className="lista-vazia">Nenhum contato neste filtro.</p>
                       ) : (
-                        <div className="data-table">
-                          <header>
-                            <span>CONTATO</span>
-                            <span>TELEFONE</span>
-                            <span>ORIGEM</span>
-                            <span>SITUAÇÃO</span>
-                            <span>NA LISTA DESDE</span>
-                            <span />
-                          </header>
-                          {visiveis.map((item) => (
-                            <div key={item.id}>
-                              <span className="celula-contato">
-                                <Avatar
-                                  nome={item.pacientes?.nome_completo}
-                                  foto={item.pacientes?.foto_url}
-                                />
-                                {item.pacientes?.nome_completo ?? 'Contato removido'}
-                              </span>
-                              <span>{telefoneVisivel(item.pacientes?.telefone)}</span>
-                              <span>
-                                {ROTULO_ORIGEM[item.pacientes?.origem ?? ''] ??
-                                  item.pacientes?.origem ??
-                                  '—'}
-                              </span>
-                              <span>{SITUACAO[item.pacientes?.situacao ?? ''] ?? '—'}</span>
-                              <span>{dataCurta(item.criado_em)}</span>
-                              <div className="acoes-evento">
-                                <button
-                                  className="botao-icone"
-                                  disabled={ocupado}
-                                  onClick={() => remover(item)}
-                                  title="Tirar da lista"
-                                  aria-label="Tirar da lista"
-                                >
-                                  <X size={15} />
-                                </button>
+                        <>
+                          <div className="data-table">
+                            <header>
+                              <span>CONTATO</span>
+                              <span>TELEFONE</span>
+                              <span>ORIGEM</span>
+                              <span>SITUAÇÃO</span>
+                              <span>NA LISTA DESDE</span>
+                              <span />
+                            </header>
+                            {visiveis.slice(0, 300).map((item) => (
+                              <div key={item.id}>
+                                <span className="celula-contato">
+                                  <Avatar
+                                    nome={item.pacientes?.nome_completo}
+                                    foto={item.pacientes?.foto_url}
+                                  />
+                                  {item.pacientes?.nome_completo ?? 'Contato removido'}
+                                </span>
+                                <span>{telefoneVisivel(item.pacientes?.telefone)}</span>
+                                <span>
+                                  {ROTULO_ORIGEM[item.pacientes?.origem ?? ''] ??
+                                    item.pacientes?.origem ??
+                                    '—'}
+                                </span>
+                                <span>{SITUACAO[item.pacientes?.situacao ?? ''] ?? '—'}</span>
+                                <span>{dataCurta(item.criado_em)}</span>
+                                <div className="acoes-evento">
+                                  <button
+                                    className="botao-icone"
+                                    disabled={ocupado}
+                                    onClick={() => remover(item)}
+                                    title="Tirar da lista"
+                                    aria-label="Tirar da lista"
+                                  >
+                                    <X size={15} />
+                                  </button>
+                                </div>
                               </div>
-                            </div>
-                          ))}
-                        </div>
+                            ))}
+                          </div>
+                          {visiveis.length > 300 && (
+                            <p className="contagem">
+                              Mostrando 300 de {visiveis.length}. Use a busca para achar os demais.
+                            </p>
+                          )}
+                        </>
                       )
                     }
                   </Conteudo>
@@ -418,13 +431,16 @@ function ModalAdicionarLeads({
   const candidatos = useConsulta<Candidato[]>(
     clinicaId && aberto
       ? () =>
-          supabase
-            .from('pacientes')
-            .select('id, nome_completo, telefone, origem, foto_url')
-            .eq('clinica_id', clinicaId)
-            .is('excluido_em', null)
-            .order('nome_completo')
-            .limit(2000)
+          buscarTodas((de, ate) =>
+            supabase
+              .from('pacientes')
+              .select('id, nome_completo, telefone, origem, foto_url')
+              .eq('clinica_id', clinicaId)
+              .is('excluido_em', null)
+              .order('nome_completo')
+              .order('id')
+              .range(de, ate),
+          )
       : null,
     [clinicaId, aberto],
   );
